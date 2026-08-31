@@ -14,7 +14,7 @@ func TestParseRuleSuccessAndFailureMatrix(t *testing.T) {
 
 	directory := t.TempDir()
 	file := filepath.Join(directory, "config.json")
-	if err := os.WriteFile(file, []byte("{}"), 0o700); err != nil {
+	if err := os.WriteFile(file, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,7 +65,7 @@ func TestParseRuleSuccessAndFailureMatrix(t *testing.T) {
 		{"bytes", Bytes(), "1.5KiB", false},
 		{"bytes negative", Bytes(), "-1KB", true},
 		{"path file", Path().File().Existing().AbsoluteOnly().WithExtensions(".json"), file, false},
-		{"path executable", Path().Executable(), file, true},
+		{"path not executable", Path().Executable(), file, true},
 		{"path directory", Path().Directory().Existing(), directory, false},
 		{"path kind", Path().Directory().Existing(), file, true},
 		{"path missing", Path().NotExisting(), file, true},
