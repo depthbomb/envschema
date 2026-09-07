@@ -177,3 +177,39 @@ func BenchmarkPolicyRichLoadFrom(b *testing.B) {
 		benchmarkValues = values
 	}
 }
+func BenchmarkConstraints(b *testing.B) {
+	for _, size := range []int{10, 100, 1000} {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			variables := make([]envschema.Variable, size)
+			constraints := make([]envschema.Constraint, size-1)
+			for index := range size {
+				variables[index] = envschema.Var(fmt.Sprintf("V%d", index), envschema.String())
+				if index > 0 {
+					constraints[index-1] = envschema.Constraint{
+						Kind:  envschema.ConstraintRequiredTogether,
+						Names: []string{"V0", variables[index].Name},
+					}
+				}
+			}
+			schema := envschema.Schema{
+				Variables:   variables,
+				Constraints: constraints,
+			}
+			encoded, err := json.Marshal(schema)
+			if err != nil {
+				b.Fatal(err)
+			}
+			schema = envschema.MustSchemaJSON(string(encoded))
+			lookup := func(string) (string, bool) {
+				return "x", true
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, err := envschema.LoadFrom(schema, lookup); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

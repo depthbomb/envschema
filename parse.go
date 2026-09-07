@@ -2809,14 +2809,30 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 	if len(schema.Constraints) == 0 {
 		return nil
 	}
-	read := func(name string) (string, bool) {
-		var variable Variable
+	var indexed map[string]*Variable
+	if len(schema.Variables) > 16 {
+		indexed = make(map[string]*Variable, len(schema.Variables))
+		for index := range schema.Variables {
+			variable := &schema.Variables[index]
+			indexed[variable.Name] = variable
+		}
+	}
+	variableFor := func(name string) *Variable {
+		if indexed != nil {
+			return indexed[name]
+		}
 		for index := range schema.Variables {
 			if schema.Variables[index].Name == name {
-				variable = schema.Variables[index]
-
-				break
+				return &schema.Variables[index]
 			}
+		}
+
+		return nil
+	}
+	read := func(name string) (string, bool) {
+		variable := variableFor(name)
+		if variable == nil {
+			return "", false
 		}
 		value, exists := lookup(name)
 		for index := 0; !exists && index < len(variable.Fallbacks); index++ {
@@ -2833,19 +2849,16 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 		if value, exists := parsed[name]; exists {
 			return value, true, nil
 		}
-		for index := range schema.Variables {
-			variable := schema.Variables[index]
-			if variable.Name == name {
-				value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
-				if err == nil && present && parsed != nil {
-					parsed[name] = value
-				}
-
-				return value, present, err
-			}
+		variable := variableFor(name)
+		if variable == nil {
+			return nil, false, fmt.Errorf("unknown variable %q", name)
+		}
+		value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
+		if err == nil && present && parsed != nil {
+			parsed[name] = value
 		}
 
-		return nil, false, fmt.Errorf("unknown variable %q", name)
+		return value, present, err
 	}
 	conditionMatches := func(name string, expected string) (bool, error) {
 		value, present, err := parsedValue(name)
@@ -2853,14 +2866,7 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 			return false, err
 		}
 
-		var rule Rule
-		for index := range schema.Variables {
-			if schema.Variables[index].Name == name {
-				rule = schema.Variables[index].Rule
-
-				break
-			}
-		}
+		rule := variableFor(name).Rule
 		expectedValue, err := parseRule(rule, expected, name+" constraint")
 		if err != nil {
 			return false, err

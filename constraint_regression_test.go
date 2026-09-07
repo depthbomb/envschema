@@ -1,6 +1,9 @@
 package envschema
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestConstraintsUseDefaultsForEmptyValues(t *testing.T) {
 	base := Must(Var("A", String().DefaultTo("default")), Var("B", String().Optional()))
@@ -39,5 +42,26 @@ func TestConstraintsUseDefaultsForEmptyValues(t *testing.T) {
 	values, err := LoadFrom(allowed, lookup)
 	if err != nil || values["A"] != "" {
 		t.Fatalf("allowed empty value changed: %v, %v", values, err)
+	}
+}
+
+func TestConstraintsOnLargeSchemas(t *testing.T) {
+	variables := make([]Variable, 32)
+	for index := range variables {
+		variables[index] = Var(fmt.Sprintf("V%d", index), Int().DefaultTo(index))
+	}
+	schema := Must(variables...).LessThanVariable("V30", "V31").RequiredWhen("V31", "31", "V30")
+	lookup := func(string) (string, bool) {
+		return "", false
+	}
+	values, err := LoadFrom(schema, lookup)
+	if err != nil || values["V30"] != int64(30) {
+		t.Fatalf("indexed constraints failed: %v, %v", values, err)
+	}
+	invalid := func(name string) (string, bool) {
+		return "32", name == "V30"
+	}
+	if _, err := LoadFrom(schema, invalid); err == nil {
+		t.Fatal("indexed constraint accepted a larger left value")
 	}
 }
