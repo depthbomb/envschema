@@ -1,8 +1,14 @@
 package config
 
 import (
+	"errors"
+	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/depthbomb/envschema"
 )
 
 var benchmarkConfig Config
@@ -86,6 +92,90 @@ func TestGeneratedConfigReportsEveryFieldError(t *testing.T) {
 	}
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() unexpectedly found a complete binary-adjacent environment")
+	}
+}
+
+func TestGeneratedSourceLoaders(t *testing.T) {
+	t.Parallel()
+
+	for _, debug := range []bool{false, true} {
+		t.Run("debug="+strconv.FormatBool(debug), func(t *testing.T) {
+			input := envschema.MapSource{
+				Values: map[string]string{
+					"DATABASE_URL":  "postgres://localhost/app",
+					"ALLOWED_HOSTS": "example.com,api.example.com",
+					"API_TOKEN":     "test-secret",
+				},
+				Label: "test",
+			}
+			if debug {
+				input.Values["DEBUG"] = "true"
+			}
+			expected, err := LoadFrom(input.Lookup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual, err := LoadSource(input, "")
+			if err != nil || !reflect.DeepEqual(actual, expected) {
+				t.Fatalf("LoadSource() = %+v, %v; want %+v", actual, err, expected)
+			}
+			actual, report, err := LoadWithReport(input)
+			if err != nil || !reflect.DeepEqual(actual, expected) {
+				t.Fatalf("LoadWithReport() = %+v, %v; want %+v", actual, err, expected)
+			}
+			for _, name := range []string{"PORT", "REQUEST_TIMEOUT", "LOG_LEVEL"} {
+				if origin := report.Origins[name]; !origin.Default || origin.Source != "default" {
+					t.Fatalf("default origin for %s = %+v", name, origin)
+				}
+			}
+			for name := range input.Values {
+				if origin := report.Origins[name]; origin.Name != name || origin.Source != "test" || origin.Default {
+					t.Fatalf("input origin for %s = %+v", name, origin)
+				}
+			}
+			if _, present := report.Origins["DEBUG"]; present != debug {
+				t.Fatalf("DEBUG origin present = %t, want %t", present, debug)
+			}
+			if len(report.Notices) != 0 {
+				t.Fatalf("unexpected notices: %v", report.Notices)
+			}
+
+			input.Values["API_TYPO"] = "value"
+			if _, err := LoadSource(input, "API_"); err == nil || !strings.Contains(err.Error(), "API_TYPO") {
+				t.Fatalf("unknown variable error = %v", err)
+			}
+
+			if _, err := LoadSource(input, "DATABASE_"); err != nil {
+				t.Fatalf("unrelated variable rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestGeneratedReportErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"PORT", "LOG_LEVEL"} {
+		t.Run(name, func(t *testing.T) {
+			input := envschema.MapSource{
+				Values: map[string]string{
+					"DATABASE_URL":  "postgres://localhost/app",
+					"ALLOWED_HOSTS": "example.com",
+					"API_TOKEN":     "test-secret",
+					name:            "invalid",
+				},
+				Label: "test",
+			}
+			config, report, err := LoadWithReport(input)
+			var failures *envschema.ValidationErrors
+			if !errors.As(err, &failures) || len(failures.Issues) != 1 || failures.Issues[0].Path != name {
+				t.Fatalf("LoadWithReport() error = %v", err)
+			}
+
+			if !reflect.DeepEqual(config, Config{}) || report.Origins[name].Source != "test" {
+				t.Fatalf("failed load returned config %+v, report %+v", config, report)
+			}
+		})
 	}
 }
 

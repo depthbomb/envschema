@@ -136,3 +136,59 @@ func TestBaseAppliesOnlyToTextInput(t *testing.T) {
 		t.Fatalf("text input no longer uses base 16: %v, %v", value, err)
 	}
 }
+
+func TestFloatingPointInputTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, input := range []any{float32(2), float64(2), int(2), int64(2), json.Number("2"), " 2 "} {
+		value, err := parseRule(Float(), input, "VALUE")
+		if err != nil || value != float64(2) {
+			t.Fatalf("Float(%T) = %v, %v; want 2", input, value, err)
+		}
+	}
+
+	for _, input := range []any{json.Number("invalid"), true, math.Inf(1), math.NaN()} {
+		if value, err := parseRule(Float(), input, "VALUE"); err == nil {
+			t.Fatalf("Float(%v) accepted as %v", input, value)
+		}
+	}
+}
+
+func TestExactIntegerEndpoints(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		rule    Rule
+		valid   string
+		invalid string
+	}{
+		{
+			rule:    Int().AtLeastInt64(math.MinInt64 + 1),
+			valid:   "-9223372036854775807",
+			invalid: "-9223372036854775808",
+		},
+		{
+			rule:    Int().AtMostInt64(math.MaxInt64 - 1),
+			valid:   "9223372036854775806",
+			invalid: "9223372036854775807",
+		},
+		{
+			rule:    Uint().AtLeastUint64(math.MaxUint64),
+			valid:   "18446744073709551615",
+			invalid: "18446744073709551614",
+		},
+	}
+	for _, test := range tests {
+		if _, err := New(Var("VALUE", test.rule)); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := parseRule(test.rule, test.valid, "VALUE"); err != nil {
+			t.Fatalf("inclusive endpoint %s rejected: %v", test.valid, err)
+		}
+
+		if _, err := parseRule(test.rule, test.invalid, "VALUE"); err == nil {
+			t.Fatalf("adjacent out-of-range integer %s accepted", test.invalid)
+		}
+	}
+}

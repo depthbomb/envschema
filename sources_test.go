@@ -5,9 +5,83 @@ import (
 	"github.com/depthbomb/envschema"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestProcessSourceSnapshot(t *testing.T) {
+	const name = "ENVSCHEMA_TEST_SNAPSHOT"
+	t.Setenv(name, "before=change")
+	source := envschema.ProcessSource()
+	t.Setenv(name, "after")
+	value, present := source.Lookup(name)
+	if !present || value != "before=change" || source.Origin(name) != "process" {
+		t.Fatalf("snapshot = %q, %t, origin = %q", value, present, source.Origin(name))
+	}
+	names := source.Names()
+	if !slices.IsSorted(names) || !slices.Contains(names, name) {
+		t.Fatalf("snapshot names are unsorted or missing %s", name)
+	}
+}
+
+func TestEnvFileSourceErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, filename := range []string{".env", ".env.local"} {
+		t.Run(filename, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, filename)
+			if err := os.WriteFile(path, []byte("INVALID LINE\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := envschema.EnvFileSource(directory, nil); err == nil || !strings.Contains(err.Error(), filename) {
+				t.Fatalf("malformed dotenv error = %v", err)
+			}
+
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.Mkdir(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := envschema.EnvFileSource(directory, nil); err == nil {
+				t.Fatal("accepted directory as dotenv file")
+			}
+		})
+	}
+}
+
+func TestSourceLoadersRejectNilAndInvalidSchema(t *testing.T) {
+	t.Parallel()
+
+	schema := envschema.Must(envschema.Var("VALUE", envschema.String()))
+	if _, _, err := envschema.LoadWithReport(schema, nil); err == nil || !strings.Contains(err.Error(), "nil source") {
+		t.Fatalf("LoadWithReport(nil) error = %v", err)
+	}
+
+	if err := envschema.ValidateKnownVariables(schema, nil); err == nil || !strings.Contains(err.Error(), "nil source") {
+		t.Fatalf("ValidateKnownVariables(nil) error = %v", err)
+	}
+	invalid := envschema.Schema{
+		Variables: []envschema.Variable{
+			envschema.Var("VALUE", envschema.Rule{
+				Kind: "invalid",
+			}),
+		},
+	}
+	input := envschema.MapSource{}
+	if _, _, err := envschema.LoadWithReport(invalid, input); err == nil {
+		t.Fatal("LoadWithReport accepted an invalid schema")
+	}
+
+	if err := envschema.ValidateKnownVariables(invalid, input); err == nil {
+		t.Fatal("ValidateKnownVariables accepted an invalid schema")
+	}
+}
 
 func TestFileSources(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "token")
@@ -162,6 +236,42 @@ func TestReportAggregatesSourceFailures(t *testing.T) {
 	var failures *envschema.ValidationErrors
 	if !errors.As(err, &failures) || len(failures.Issues) != 2 || failures.Issues[0].Code != "source" {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestReportSourceFailurePreservesUnrelatedConstraints(t *testing.T) {
+	t.Parallel()
+
+	schema := envschema.Must(
+		envschema.Var("TOKEN", envschema.String().FromFile("TOKEN_FILE", envschema.PreferFile)),
+		envschema.Var("OTHER", envschema.String().Optional()),
+		envschema.Var("LEFT", envschema.Int()),
+		envschema.Var("RIGHT", envschema.Int()),
+	).RequiredTogether("OTHER", "TOKEN").EqualValues("LEFT", "RIGHT")
+	input := envschema.MapSource{
+		Values: map[string]string{
+			"TOKEN_FILE": filepath.Join(t.TempDir(), "missing"),
+			"LEFT":       "1",
+			"RIGHT":      "2",
+		},
+		Label: "test",
+	}
+	if err := envschema.ValidateKnownVariables(schema, input, ""); err != nil {
+		t.Fatalf("companion file name rejected: %v", err)
+	}
+	_, report, err := envschema.LoadWithReport(schema, input)
+	var failures *envschema.ValidationErrors
+	if !errors.As(err, &failures) || len(failures.Issues) != 2 || failures.Issues[0].Code != "source" || !strings.Contains(failures.Issues[1].Error(), "equal") {
+		t.Fatalf("source and unrelated constraint errors = %v", err)
+	}
+
+	if report.Origins["LEFT"].Source != "test" || report.Origins["RIGHT"].Source != "test" {
+		t.Fatalf("unrelated origins missing: %+v", report)
+	}
+	input.Values["RIGHT"] = "1"
+	_, _, err = envschema.LoadWithReport(schema, input)
+	if !errors.As(err, &failures) || len(failures.Issues) != 1 || failures.Issues[0].Path != "TOKEN" {
+		t.Fatalf("constraint involving failed source was not skipped: %v", err)
 	}
 }
 
