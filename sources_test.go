@@ -84,3 +84,44 @@ func TestSchemaDocumentation(t *testing.T) {
 		t.Fatalf("%s %v", documentation, err)
 	}
 }
+
+func TestFileSnapshotAndAbsentFallbackReport(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "value")
+	if err := os.WriteFile(filename, []byte("initial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	schema := envschema.Must(envschema.Var("A", envschema.String().FromFile("A_FILE", envschema.PreferFile)), envschema.Var("B", envschema.String())).EqualValues("A", "B")
+	calls := 0
+	_, err := envschema.LoadFrom(schema, func(name string) (string, bool) {
+		if name == "A_FILE" {
+			calls++
+			return filename, true
+		}
+		if name == "B" {
+			if err := os.WriteFile(filename, []byte("changed"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			return "initial", true
+		}
+		return "", false
+	})
+	if err != nil || calls != 1 {
+		t.Fatalf("file resolved %d times: %v", calls, err)
+	}
+	optional := envschema.Must(envschema.Var("OPTIONAL", envschema.String().Optional()).FallbackTo("A"), envschema.Var("A", envschema.String().FromFile("A_FILE", envschema.PreferFile)))
+	source := envschema.MapSource{Values: map[string]string{"A_FILE": filename}}
+	direct, err := envschema.LoadFrom(optional, source.Lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := direct["OPTIONAL"]; exists {
+		t.Fatal("file source changed fallback lookup")
+	}
+	values, report, err := envschema.LoadWithReport(optional, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := values["OPTIONAL"]; exists {
+		t.Fatalf("absent fallback populated: %v %+v", values, report)
+	}
+}

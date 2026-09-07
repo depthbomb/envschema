@@ -2864,10 +2864,19 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 		}
 		schema.validated = true
 	}
+	schema, lookup, sourceFailures := snapshotFiles(schema, lookup)
 	values := make(Values, len(schema.Variables))
 	var failures []error
 	var invalid map[string]bool
 	for _, variable := range schema.Variables {
+		if err := sourceFailures[variable.Name]; err != nil {
+			failures = append(failures, err)
+			if invalid == nil {
+				invalid = make(map[string]bool)
+			}
+			invalid[variable.Name] = true
+			continue
+		}
 		value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
 		if err != nil {
 			failures = append(failures, err)
