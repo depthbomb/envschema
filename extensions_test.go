@@ -91,3 +91,21 @@ func TestQueryRules(t *testing.T) {
 	checkRule(t, envschema.URL().QueryParameter("timeout", envschema.Int().Between(1, 10)).QueryParameter("mode", envschema.OneOf("fast", "safe").Optional()), []string{"https://host?timeout=2&mode=safe"}, []string{"https://host", "https://host?timeout=11", "https://host?timeout=2&timeout=3", "https://host?timeout=2&mode=no"})
 	checkRule(t, envschema.URI().AllowRelativeReference().QueryParameter("port", envschema.Array(envschema.Port())), []string{"/?port=80&port=443"}, []string{"/?port=99999"})
 }
+
+func TestConditionalValidation(t *testing.T) {
+	schema := envschema.Must(envschema.Var("MODE", envschema.OneOf("local", "production").CaseInsensitive()), envschema.Var("URL", envschema.URL())).ValidateWhen("MODE", "production", "URL", envschema.URL().HTTPSOnly())
+	encoded, _ := json.Marshal(schema)
+	for _, candidate := range []envschema.Schema{schema, envschema.MustSchemaJSON(string(encoded))} {
+		for _, mode := range []string{"local", "PRODUCTION"} {
+			_, err := envschema.LoadFrom(candidate, func(name string) (string, bool) {
+				if name == "MODE" {
+					return mode, true
+				}
+				return "http://host", true
+			})
+			if (err != nil) != (mode == "PRODUCTION") {
+				t.Fatalf("%s: %v", mode, err)
+			}
+		}
+	}
+}

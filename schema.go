@@ -35,6 +35,7 @@ type ConstraintKind string
 
 // Constraint is the serializable representation of a cross-variable contract.
 type Constraint struct {
+	Rule  *Rule          `json:"rule,omitempty"`
 	Kind  ConstraintKind `json:"kind"`
 	Names []string       `json:"names"`
 	Value string         `json:"value,omitempty"`
@@ -445,13 +446,13 @@ func (schema Schema) Validate() error {
 	}
 	for _, constraint := range schema.Constraints {
 		switch constraint.Kind {
-		case ConstraintExactlyOne, ConstraintAtLeastOne, ConstraintMutuallyExclusive, ConstraintRequiredTogether,
+		case ConstraintValidateWhen, ConstraintExactlyOne, ConstraintAtLeastOne, ConstraintMutuallyExclusive, ConstraintRequiredTogether,
 			ConstraintRequiredWhen, ConstraintForbiddenWhen, ConstraintRequiredUnless, ConstraintRequiredIfPresent,
 			ConstraintEqualValues, ConstraintDifferentValues, ConstraintLessThanVariable, ConstraintTLSKeyPair:
 		default:
 			return fmt.Errorf("envschema: unsupported constraint %q", constraint.Kind)
 		}
-		exactlyTwo := constraint.Kind == ConstraintEqualValues || constraint.Kind == ConstraintDifferentValues ||
+		exactlyTwo := constraint.Kind == ConstraintValidateWhen || constraint.Kind == ConstraintEqualValues || constraint.Kind == ConstraintDifferentValues ||
 			constraint.Kind == ConstraintLessThanVariable || constraint.Kind == ConstraintTLSKeyPair
 		if len(constraint.Names) < 2 || exactlyTwo && len(constraint.Names) != 2 {
 			expected := "at least two"
@@ -470,6 +471,13 @@ func (schema Schema) Validate() error {
 				return fmt.Errorf("envschema: %s constraint repeats variable %q", constraint.Kind, name)
 			}
 			constraintNames[name] = struct{}{}
+		}
+		if constraint.Kind == ConstraintValidateWhen {
+			if err := validateConditional(constraint, rules); err != nil {
+				return err
+			}
+		} else if constraint.Rule != nil {
+			return fmt.Errorf("envschema: additional rule requires ValidateWhen")
 		}
 		if constraint.Kind == ConstraintTLSKeyPair {
 			if rules[constraint.Names[0]].Kind != KindCertificate || rules[constraint.Names[1]].Kind != KindPrivateKey {

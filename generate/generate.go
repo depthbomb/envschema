@@ -622,6 +622,12 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 			args[index] = strconv.Quote(name)
 		}
 		switch constraint.Kind {
+		case envschema.ConstraintValidateWhen:
+			inner, err := ruleLiteral(*constraint.Rule)
+			if err != nil {
+				return "", err
+			}
+			expression.WriteString(".ValidateWhen(" + args[0] + "," + strconv.Quote(constraint.Value) + "," + args[1] + "," + inner + ")")
 		case envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless:
 			method := map[envschema.ConstraintKind]string{
 				envschema.ConstraintRequiredWhen:   "RequiredWhen",
@@ -755,7 +761,7 @@ func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
 func constraintsParseValues(schema envschema.Schema) bool {
 	for _, constraint := range schema.Constraints {
 		switch constraint.Kind {
-		case envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless,
+		case envschema.ConstraintValidateWhen, envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless,
 			envschema.ConstraintEqualValues, envschema.ConstraintDifferentValues, envschema.ConstraintLessThanVariable:
 			return true
 		}
@@ -779,6 +785,11 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	optionalPointers := make([]bool, len(schema.Variables))
 	names := make([]string, len(schema.Variables))
 	imports := map[string]string{"envschema": reflect.TypeFor[envschema.Schema]().PkgPath()}
+	for _, constraint := range schema.Constraints {
+		if constraint.Rule != nil {
+			ruleDefaultImports(*constraint.Rule, imports)
+		}
+	}
 	seenNames := make(map[string]string, len(schema.Variables))
 	for index, variable := range schema.Variables {
 		ruleDefaultImports(variable.Rule, imports)

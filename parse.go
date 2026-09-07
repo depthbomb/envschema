@@ -2948,6 +2948,16 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 		}
 
 		switch constraint.Kind {
+		case ConstraintValidateWhen:
+			matches, err := conditionMatches(constraint.Names[0], constraint.Value)
+			if err != nil {
+				return err
+			}
+			if matches {
+				if err := validateConditionalTarget(constraint, *variableFor(constraint.Names[1]), lookup); err != nil {
+					return err
+				}
+			}
 		case ConstraintExactlyOne:
 			if present != 1 {
 				return fmt.Errorf("envschema: exactly one of [%s] must be defined", strings.Join(constraint.Names, ", "))
