@@ -1,8 +1,41 @@
 # Performance
 
-Performance measurements use representative schemas rather than isolated parser microbenchmarks. The reference results below were collected with Go 1.26 on Windows/amd64 and an Intel i7-9700K. Timings are medians from repeated runs; scheduler, filesystem-cache, and antivirus activity can affect results.
+Performance measurements use representative schemas rather than isolated parser microbenchmarks. The original reference results below were collected with Go 1.26 on Windows/amd64 and an Intel i7-9700K. Timings are medians from repeated runs; scheduler, filesystem-cache, and antivirus activity can affect results.
 
-## Runtime results
+## September 2026 runtime pass
+
+Measured on Go 1.27.1, Windows/amd64, Intel i7-9700K. Each result is the median of five samples.
+The existing-workload baseline is revision 2e2bd07; optimized code is 4442d14.
+
+| Workload | Before | After | Time reduction |
+| --- | ---: | ---: | ---: |
+| Mixed 100-variable load | 29.80 us | 25.84 us | 13.3% |
+| 100 variables, 99 presence constraints | 30.02 us | 20.32 us | 32.3% |
+| 1,000 variables, 999 presence constraints | 367.71 us | 249.31 us | 32.2% |
+| Plain 4 KiB string | 10.23 us | 0.33 us | 96.8% |
+| Subset of two 100-item string lists | 168.64 us | 9.03 us | 94.6% |
+| Subset of two 1,000-item string lists | 15.36 ms | 88.28 us | 99.4% |
+
+The 1,000-variable constraint workload fell from 168,656 to 98,048 bytes per load, and from 2,011 to 1,006 allocations.
+Completed loads now supply presence directly to constraints, avoiding repeated source reads and unnecessary variable indexes.
+Loading traverses variable definitions by pointer. String parsing skips rune scans unless a character policy requires one and
+reuses unchanged string values. Primitive collection relationships use direct comparisons for small inputs and membership
+indexes for larger inputs; structured values retain deep comparison semantics.
+
+Existing workloads use 400ms samples. The new text and relationship baselines used 300ms samples immediately before their
+targeted optimizations, after pointer traversal had been introduced; final samples use 400ms. Benchmarks ran separately from
+race tests. Generated-example timing and pattern initialization changed by less than 10%; no meaningful timing improvement
+is claimed for them.
+
+Reproduce the added workloads with:
+
+```shell
+go test -run '^$' -bench '^BenchmarkConstraints' -benchmem -benchtime=400ms -count=5 .
+go test -run '^$' -bench '^BenchmarkTextLoadFrom' -benchmem -benchtime=400ms -count=5 .
+go test -run '^$' -bench '^BenchmarkCollectionRelationships' -benchmem -benchtime=400ms -count=5 .
+```
+
+## Original runtime results
 
 | Benchmark                                     | Time     | Memory   | Allocations |
 |-----------------------------------------------|---------:|---------:|------------:|
