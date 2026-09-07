@@ -592,6 +592,13 @@ func policyInt(rule Rule, name string) (int, bool) {
 
 func validatePolicies(rule Rule, path string) error {
 	for name, values := range rule.Policies {
+		if handled, err := validateExactPolicy(rule, name, values); handled {
+			if err != nil {
+				return fmt.Errorf("envschema: %s: %w", path, err)
+			}
+			continue
+		}
+
 		valid := false
 		switch name {
 		case policyContaining, policyNotContaining, policyUTF8, policyNoControl, policySingleLine, policyEqualFold:

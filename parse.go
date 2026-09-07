@@ -101,6 +101,18 @@ func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc
 }
 
 func parseRule(rule Rule, raw any, path string) (any, error) {
+	value, err := parseRuleValue(rule, raw, path)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkExactPolicies(rule, value, path); err != nil {
+		return nil, err
+	}
+
+	return value, nil
+}
+
+func parseRuleValue(rule Rule, raw any, path string) (any, error) {
 	switch rule.Kind {
 	case KindString:
 		return parseString(rule, raw, path)
