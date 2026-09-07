@@ -48,7 +48,7 @@ const (
 	PreferFile        FileConflict = "file"
 )
 
-func readVariableSource(rule Rule, name string, fallbacks []string, lookup LookupFunc) (string, bool, error) {
+func readVariableSource(rule *Rule, name string, fallbacks []string, lookup LookupFunc) (string, bool, error) {
 	value, exists := lookup(name)
 	for _, fallback := range fallbacks {
 		if exists {
@@ -56,7 +56,7 @@ func readVariableSource(rule Rule, name string, fallbacks []string, lookup Looku
 		}
 		value, exists = lookup(fallback)
 	}
-	source, configured := policy(rule, "fileSource")
+	source, configured := policy(*rule, "fileSource")
 	if !configured {
 		return value, exists, nil
 	}
@@ -197,7 +197,7 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 			}
 		}
 		var err error
-		raw, present, err = readVariableSource(variable.Rule, variable.Name, variable.Fallbacks, source.Lookup)
+		raw, present, err = readVariableSource(&variable.Rule, variable.Name, variable.Fallbacks, source.Lookup)
 		if err != nil {
 			return nil, report, err
 		}

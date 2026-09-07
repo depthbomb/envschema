@@ -59,6 +59,9 @@ func (failures *ValidationErrors) Unwrap() []error {
 // JoinErrors combines validation failures, flattening nested collections.
 // It returns nil when no failures were supplied.
 func JoinErrors(failures ...error) error {
+	if len(failures) == 0 {
+		return nil
+	}
 	result := &ValidationErrors{}
 	for _, err := range failures {
 		if err == nil {

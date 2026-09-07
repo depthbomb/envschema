@@ -75,7 +75,7 @@ func lookupOS(name string) (string, bool) {
 }
 
 func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc) (any, bool, error) {
-	rawValue, exists, sourceErr := readVariableSource(rule, name, fallbacks, lookup)
+	rawValue, exists, sourceErr := readVariableSource(&rule, name, fallbacks, lookup)
 	if sourceErr != nil {
 		return nil, false, validationError(name, "source", sourceErr)
 	}
@@ -104,77 +104,76 @@ func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc
 	return value, true, nil
 }
 
-func parseRule(rule Rule, raw any, path string) (result any, failure error) {
-	defer func() { failure = validationError(path, "invalid", failure) }()
-
+func parseRule(rule Rule, raw any, path string) (any, error) {
 	if rule.Redact {
 		rule.Redact = false
 		value, err := parseRule(rule, raw, path)
 		if err != nil {
-			return nil, fmt.Errorf("[%s] invalid sensitive value", path)
+			return nil, validationError(path, "invalid", fmt.Errorf("[%s] invalid sensitive value", path))
 		}
 
 		return Protected[any]{value: value}, nil
 	}
-	value, err := parseRuleValue(rule, raw, path)
-	if err != nil {
-		return nil, err
+	value, err := parseRuleValue(&rule, raw, path)
+	if err == nil && len(rule.QueryFields) > 0 {
+		err = checkQueryFields(rule, value, path)
 	}
-	if err := checkQueryFields(rule, value, path); err != nil {
-		return nil, err
-	}
-	if err := checkCIDRCollection(rule, value, path); err != nil {
-		return nil, err
-	}
-	if rule.Kind == KindMap {
-		if err := checkMapKeys(rule, value, path); err != nil {
-			return nil, err
+	if err == nil && len(rule.Policies) > 0 {
+		switch rule.Kind {
+		case KindArray, KindList:
+			err = checkCIDRCollection(rule, value, path)
+		case KindMap:
+			err = checkMapKeys(rule, value, path)
+		case KindDecimal:
+			err = checkDecimalShape(rule, value, path)
+			if err == nil {
+				err = checkExactPolicies(rule, value, path)
+			}
+		case KindInt, KindUInt, KindBigInt, KindBytes, KindPort:
+			err = checkExactPolicies(rule, value, path)
 		}
 	}
-	if err := checkDecimalShape(rule, value, path); err != nil {
-		return nil, err
-	}
-	if err := checkExactPolicies(rule, value, path); err != nil {
-		return nil, err
+	if err != nil {
+		return nil, validationError(path, "invalid", err)
 	}
 
 	return value, nil
 }
 
-func parseRuleValue(rule Rule, raw any, path string) (any, error) {
+func parseRuleValue(rule *Rule, raw any, path string) (any, error) {
 	switch rule.Kind {
 	case KindObject:
-		return parseObject(rule, raw, path)
+		return parseObject(*rule, raw, path)
 	case KindString:
-		return parseString(rule, raw, path)
+		return parseString(*rule, raw, path)
 	case KindNumber, KindFloat:
-		return parseNumber(rule, raw, path, false)
+		return parseNumber(*rule, raw, path, false)
 	case KindInt:
-		return parseNumber(rule, raw, path, true)
+		return parseNumber(*rule, raw, path, true)
 	case KindUInt:
-		return parseUint(rule, raw, path)
+		return parseUint(*rule, raw, path)
 	case KindBoolean:
-		return parseBoolean(rule, raw, path)
+		return parseBoolean(*rule, raw, path)
 	case KindEnum:
-		return parseEnum(rule, raw, path)
+		return parseEnum(*rule, raw, path)
 	case KindJSON:
-		return parseJSON(rule, raw, path)
+		return parseJSON(*rule, raw, path)
 	case KindArray:
-		return parseArray(rule, raw, path)
+		return parseArray(*rule, raw, path)
 	case KindList:
-		return parseList(rule, raw, path)
+		return parseList(*rule, raw, path)
 	case KindDuration:
-		return parseDuration(rule, raw, path)
+		return parseDuration(*rule, raw, path)
 	case KindDate:
-		return parseDate(rule, raw, path)
+		return parseDate(*rule, raw, path)
 	case KindBytes:
-		return parseBytes(rule, raw, path)
+		return parseBytes(*rule, raw, path)
 	case KindPath:
-		return parsePath(rule, raw, path)
+		return parsePath(*rule, raw, path)
 	case KindBase64:
-		return parseBase64(rule, raw, path)
+		return parseBase64(*rule, raw, path)
 	case KindSecret:
-		value, err := parseString(rule, raw, path)
+		value, err := parseString(*rule, raw, path)
 		if err != nil {
 			return nil, err
 		}
@@ -183,59 +182,59 @@ func parseRuleValue(rule Rule, raw any, path string) (any, error) {
 	case KindEmail:
 		return parseEmail(raw, path)
 	case KindPort:
-		return parsePort(rule, raw, path)
+		return parsePort(*rule, raw, path)
 	case KindURL:
-		return parseURLRule(rule, raw, path)
+		return parseURLRule(*rule, raw, path)
 	case KindHost:
-		return parseHost(rule, raw, path)
+		return parseHost(*rule, raw, path)
 	case KindUUID:
-		return parseUUID(rule, raw, path)
+		return parseUUID(*rule, raw, path)
 	case KindIP:
-		return parseIP(rule, raw, path)
+		return parseIP(*rule, raw, path)
 	case KindHash:
-		return parseHash(rule, raw, path)
+		return parseHash(*rule, raw, path)
 	case KindHex:
-		return parseHex(rule, raw, path)
+		return parseHex(*rule, raw, path)
 	case KindSemVer:
-		return parseSemVer(rule, raw, path)
+		return parseSemVer(*rule, raw, path)
 	case KindTimeZone:
 		return parseTimeZone(raw, path)
 	case KindCIDR:
-		return parseCIDR(rule, raw, path)
+		return parseCIDR(*rule, raw, path)
 	case KindEndpoint:
-		return parseEndpoint(rule, raw, path)
+		return parseEndpoint(*rule, raw, path)
 	case KindUnixSocket:
-		return parseUnixSocket(rule, raw, path)
+		return parseUnixSocket(*rule, raw, path)
 	case KindTimestamp:
-		return parseTimestamp(rule, raw, path)
+		return parseTimestamp(*rule, raw, path)
 	case KindTimeOfDay:
-		return parseTimeOfDay(rule, raw, path)
+		return parseTimeOfDay(*rule, raw, path)
 	case KindMap:
-		return parseMap(rule, raw, path)
+		return parseMap(*rule, raw, path)
 	case KindRegexp:
 		return parseRegexp(raw, path)
 	case KindPEM:
-		return parsePEM(rule, raw, path)
+		return parsePEM(*rule, raw, path)
 	case KindCertificate:
-		return parseCertificate(rule, raw, path)
+		return parseCertificate(*rule, raw, path)
 	case KindPrivateKey:
-		return parsePrivateKey(rule, raw, path)
+		return parsePrivateKey(*rule, raw, path)
 	case KindCustom:
 		return requireString(raw, path)
 	case KindURI:
-		return parseURI(rule, raw, path)
+		return parseURI(*rule, raw, path)
 	case KindMACAddress:
 		return parseMACAddress(raw, path)
 	case KindPublicKey:
-		return parsePublicKey(rule, raw, path)
+		return parsePublicKey(*rule, raw, path)
 	case KindCertBundle:
-		return parseCertificateBundle(rule, raw, path)
+		return parseCertificateBundle(*rule, raw, path)
 	case KindBigInt:
-		return parseBigInt(rule, raw, path)
+		return parseBigInt(*rule, raw, path)
 	case KindDecimal:
-		return parseDecimal(rule, raw, path)
+		return parseDecimal(*rule, raw, path)
 	case KindMediaType:
-		return parseMediaType(rule, raw, path)
+		return parseMediaType(*rule, raw, path)
 	case KindFileMode:
 		return parseFileMode(raw, path)
 	case KindULID:
@@ -2854,11 +2853,14 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 	}
 	values := make(Values, len(schema.Variables))
 	var failures []error
-	invalid := make(map[string]bool)
+	var invalid map[string]bool
 	for _, variable := range schema.Variables {
 		value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
 		if err != nil {
 			failures = append(failures, err)
+			if invalid == nil {
+				invalid = make(map[string]bool)
+			}
 			invalid[variable.Name] = true
 			continue
 		}
@@ -2916,7 +2918,7 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 		if variable == nil {
 			return "", false
 		}
-		value, exists, err := readVariableSource(variable.Rule, name, variable.Fallbacks, lookup)
+		value, exists, err := readVariableSource(&variable.Rule, name, variable.Fallbacks, lookup)
 		if err != nil {
 			sourceErr = err
 			return "", false
