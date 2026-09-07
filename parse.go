@@ -1556,24 +1556,24 @@ func parseURLRule(rule Rule, raw any, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return nil, fmt.Errorf("[%s] expected valid URL", path)
+	}
+
 	if rule.Absolute != nil && !*rule.Absolute {
-		parsed, err := url.Parse(value)
-		if err != nil || parsed.IsAbs() || strings.HasPrefix(value, "//") || value == "" {
+		if parsed.IsAbs() || strings.HasPrefix(value, "//") || value == "" {
 			return nil, fmt.Errorf("[%s] expected relative URL", path)
 		}
 
 		return value, nil
 	}
-	if !validURL(value) {
+	if !parsed.IsAbs() || parsed.Hostname() == "" {
 		if _, allowed := policy(rule, policyAllowRelative); !allowed {
 			return nil, fmt.Errorf("[%s] expected valid URL", path)
 		}
 	}
 	if len(rule.Schemes) != 0 || rule.URLCredentials != nil || rule.URLPort != nil || rule.URLQuery != nil || rule.URLFragment != nil || len(rule.Policies) != 0 {
-		parsed, err := url.Parse(value)
-		if err != nil {
-			return nil, fmt.Errorf("[%s] expected valid URL", path)
-		}
 		if len(rule.Schemes) != 0 {
 			allowed := false
 			for _, scheme := range rule.Schemes {
@@ -1691,43 +1691,10 @@ func hasDomainSuffix(host string, suffix string) bool {
 }
 
 func validURL(value string) bool {
-	separator := strings.Index(value, "://")
-	if separator < 1 || separator+3 == len(value) {
-		return false
-	}
+	parsed, err := url.Parse(value)
 
-	for index := range separator {
-		character := value[index]
-		if index == 0 {
-			if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' {
-				continue
-			}
-
-			return false
-		}
-		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' ||
-			character >= '0' && character <= '9' || character == '+' || character == '-' || character == '.' {
-			continue
-		}
-
-		return false
-	}
-
-	authorityLength := 0
-	for index := separator + 3; index < len(value); index++ {
-		character := value[index]
-		if character == '/' || character == '?' || character == '#' {
-			break
-		}
-		if character <= ' ' || character == 0x7f {
-			return false
-		}
-		authorityLength++
-	}
-
-	return authorityLength != 0
+	return err == nil && parsed.IsAbs() && parsed.Hostname() != ""
 }
-
 func parseHost(rule Rule, raw any, path string) (any, error) {
 	value, err := requireString(raw, path)
 	if err != nil {
