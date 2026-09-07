@@ -306,6 +306,10 @@ func parseString(rule Rule, raw any, path string) (any, error) {
 }
 
 func parseNumber(rule Rule, raw any, path string, integer bool) (any, error) {
+	if integer {
+		return parseInteger(rule, raw, path)
+	}
+
 	var value float64
 	switch raw := raw.(type) {
 	case float64:
@@ -324,16 +328,6 @@ func parseNumber(rule Rule, raw any, path string, integer bool) (any, error) {
 		value = parsed
 	case string:
 		trimmed := strings.TrimSpace(raw)
-		if base, configured := policyInt(rule, policyBase); configured && integer {
-			parsed, parseErr := strconv.ParseInt(trimmed, base, 64)
-			if parseErr != nil {
-				return nil, fmt.Errorf("[%s] expected base-%d integer but got %q", path, base, raw)
-			}
-			value = float64(parsed)
-
-			break
-		}
-
 		parsed, err := strconv.ParseFloat(trimmed, 64)
 		if err != nil {
 			return nil, fmt.Errorf("[%s] expected number but got %q", path, raw)
@@ -348,20 +342,59 @@ func parseNumber(rule Rule, raw any, path string, integer bool) (any, error) {
 		return nil, fmt.Errorf("[%s] expected finite number", path)
 	}
 
-	if integer && math.Trunc(value) != value {
-		return nil, fmt.Errorf("[%s] expected integer but got %v", path, value)
-	}
-
 	if err := checkNumericConstraints(rule, value, path, "number"); err != nil {
 		return nil, err
 	}
 
-	if integer {
-		if value < math.MinInt64 || value > math.MaxInt64 {
-			return nil, fmt.Errorf("[%s] integer is outside int64 range", path)
-		}
+	return value, nil
+}
 
-		return int64(value), nil
+func parseInteger(rule Rule, raw any, path string) (any, error) {
+	var value int64
+	switch raw := raw.(type) {
+	case int:
+		value = int64(raw)
+	case int64:
+		value = raw
+	case float32:
+		return parseInteger(rule, float64(raw), path)
+	case float64:
+		if math.IsNaN(raw) || raw < -0x1p63 || raw >= 0x1p63 || math.Trunc(raw) != raw {
+			return nil, fmt.Errorf("[%s] expected integer in int64 range", path)
+		}
+		value = int64(raw)
+	case json.Number:
+		return parseInteger(rule, raw.String(), path)
+	case string:
+		trimmed := strings.TrimSpace(raw)
+		base, configured := policyInt(rule, policyBase)
+		if !configured {
+			base = 10
+		}
+		parsed, err := strconv.ParseInt(trimmed, base, 64)
+		if err != nil {
+			// Preserve integral decimal and exponent forms without rounding through float64.
+			floating, floatErr := strconv.ParseFloat(trimmed, 64)
+			if configured || floatErr != nil || math.IsNaN(floating) || math.IsInf(floating, 0) {
+				return nil, fmt.Errorf("[%s] expected integer in int64 range", path)
+			}
+			exact, ok := new(big.Rat).SetString(trimmed)
+			if !ok || !exact.IsInt() || !exact.Num().IsInt64() {
+				return nil, fmt.Errorf("[%s] expected integer in int64 range", path)
+			}
+			parsed = exact.Num().Int64()
+		}
+		value = parsed
+	default:
+		return nil, fmt.Errorf("[%s] expected integer but got %T", path, raw)
+	}
+
+	if value >= -(1<<53) && value <= 1<<53 {
+		if err := checkNumericConstraints(rule, float64(value), path, "integer"); err != nil {
+			return nil, err
+		}
+	} else if _, err := validateBigInt(rule, *big.NewInt(value), path); err != nil {
+		return nil, err
 	}
 
 	return value, nil
@@ -387,7 +420,7 @@ func parseUint(rule Rule, raw any, path string) (any, error) {
 
 		value = uint64(raw)
 	case float64:
-		if raw < 0 || math.Trunc(raw) != raw || raw > math.MaxUint64 {
+		if raw < 0 || math.Trunc(raw) != raw || raw >= 0x1p64 {
 			return nil, fmt.Errorf("[%s] expected unsigned integer", path)
 		}
 
@@ -415,7 +448,11 @@ func parseUint(rule Rule, raw any, path string) (any, error) {
 		return nil, fmt.Errorf("[%s] expected unsigned integer but got %T", path, raw)
 	}
 
-	if err := checkNumericConstraints(rule, float64(value), path, "unsigned integer"); err != nil {
+	if value <= 1<<53 {
+		if err := checkNumericConstraints(rule, float64(value), path, "unsigned integer"); err != nil {
+			return nil, err
+		}
+	} else if _, err := validateBigInt(rule, *new(big.Int).SetUint64(value), path); err != nil {
 		return nil, err
 	}
 
@@ -1305,37 +1342,50 @@ func parseDateBound(value string) (time.Time, error) {
 }
 
 func parseBytes(rule Rule, raw any, path string) (any, error) {
-	var value float64
-	switch raw := raw.(type) {
-	case int64:
-		value = float64(raw)
-	case int:
-		value = float64(raw)
-	case float64:
-		value = raw
-	case string:
-		match := bytesPattern.FindStringSubmatch(strings.TrimSpace(raw))
+	if text, ok := raw.(string); ok {
+		match := bytesPattern.FindStringSubmatch(strings.TrimSpace(text))
 		if match == nil {
 			return nil, fmt.Errorf("[%s] expected byte size like 64MB or 1.5GiB", path)
 		}
-		number, _ := strconv.ParseFloat(match[1], 64)
-		multipliers := map[string]float64{"": 1, "B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "KIB": 1 << 10, "MIB": 1 << 20, "GIB": 1 << 30, "TIB": 1 << 40}
-		value = number * multipliers[strings.ToUpper(match[2])]
-	default:
-		return nil, fmt.Errorf("[%s] expected byte size but got %T", path, raw)
+		multipliers := map[string]int64{
+			"":    1,
+			"B":   1,
+			"KB":  1e3,
+			"MB":  1e6,
+			"GB":  1e9,
+			"TB":  1e12,
+			"KIB": 1 << 10,
+			"MIB": 1 << 20,
+			"GIB": 1 << 30,
+			"TIB": 1 << 40,
+		}
+		multiplier := multipliers[strings.ToUpper(match[2])]
+		whole, err := strconv.ParseInt(match[1], 10, 64)
+		if err == nil && whole <= math.MaxInt64/multiplier {
+			raw = whole * multiplier
+		} else {
+			exact, ok := new(big.Rat).SetString(match[1])
+			if !ok {
+				return nil, fmt.Errorf("[%s] expected valid byte size", path)
+			}
+			exact.Mul(exact, new(big.Rat).SetInt64(multiplier))
+			if !exact.IsInt() || !exact.Num().IsInt64() {
+				return nil, fmt.Errorf("[%s] expected whole byte size in int64 range", path)
+			}
+			raw = exact.Num().Int64()
+		}
 	}
-
-	if value < 0 || math.Trunc(value) != value || value > math.MaxInt64 {
-		return nil, fmt.Errorf("[%s] expected a non-negative whole number of bytes", path)
-	}
-
-	if err := checkNumericConstraints(rule, value, path, "byte size"); err != nil {
+	value, err := parseInteger(rule, raw, path)
+	if err != nil {
 		return nil, err
 	}
 
-	return int64(value), nil
-}
+	if value.(int64) < 0 {
+		return nil, fmt.Errorf("[%s] expected non-negative byte size", path)
+	}
 
+	return value, nil
+}
 func parsePath(rule Rule, raw any, path string) (any, error) {
 	value, err := requireString(raw, path)
 	if err != nil {
