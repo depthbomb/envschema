@@ -154,3 +154,8 @@ func TestAggregatedErrors(t *testing.T) {
 		t.Fatalf("%#v %v", failures, err)
 	}
 }
+
+func TestSensitiveComposition(t *testing.T) {
+	checkRule(t, envschema.List(envschema.String().Sensitive()).CaseInsensitiveUniqueItems().RejectEmptyItems().Sorted(), []string{"a,b"}, []string{"a,A", "b,a", "a,"})
+	checkRule(t, envschema.Array(envschema.Object(envschema.Field("token", envschema.String().Sensitive()))).UniqueItems(), []string{`[{"token":"a"},{"token":"b"}]`}, []string{`[{"token":"a"},{"token":"a"}]`})
+}

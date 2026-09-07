@@ -999,6 +999,15 @@ func parseList(rule Rule, raw any, path string) (any, error) {
 }
 
 func validateCollectionPolicies(rule Rule, parsed any, path string) error {
+	if rule.Item != nil && rule.Item.Redact {
+		values := reflect.ValueOf(parsed)
+		unwrapped := make([]any, values.Len())
+		for i := range unwrapped {
+			unwrapped[i] = values.Index(i).Interface().(interface{ protectedValue() any }).protectedValue()
+		}
+		parsed = unwrapped
+	}
+
 	if items, stringsOnly := parsed.([]string); stringsOnly {
 		return validateStringCollectionPolicies(rule, items, path)
 	}
@@ -1039,7 +1048,11 @@ func validateCollectionPolicies(rule Rule, parsed any, path string) error {
 				_, exists = seenComparable[item]
 				seenComparable[item] = struct{}{}
 			} else {
-				encoded, _ := json.Marshal(item)
+				identity := item
+				if rule.Item != nil && containsSecrets(*rule.Item) {
+					identity = identityValue(item)
+				}
+				encoded, _ := json.Marshal(identity)
 				key := string(encoded)
 				_, exists = seenEncoded[key]
 				seenEncoded[key] = struct{}{}
@@ -1238,7 +1251,11 @@ func parseItemsAs[T any](rule Rule, items []any, path string, unique bool) ([]T,
 				}
 				seenComparable[value] = struct{}{}
 			} else {
-				encoded, _ := json.Marshal(value)
+				identity := value
+				if containsSecrets(rule) {
+					identity = identityValue(value)
+				}
+				encoded, _ := json.Marshal(identity)
 				key := string(encoded)
 				if _, ok := seenEncoded[key]; ok {
 					return nil, fmt.Errorf("[%s] expected list items to be unique", path)
@@ -1271,16 +1288,12 @@ func parseUntypedItems(rule Rule, items []any, path string, unique bool) ([]any,
 		}
 		parsed[index] = value
 
-		if unique && rule.Redact {
-			for _, prior := range parsed[:index] {
-				if reflect.DeepEqual(prior, value) {
-					return nil, fmt.Errorf("[%s] expected list items to be unique", path)
-				}
-			}
-			continue
-		}
 		if unique {
-			encoded, _ := json.Marshal(value)
+			identity := value
+			if containsSecrets(rule) {
+				identity = identityValue(value)
+			}
+			encoded, _ := json.Marshal(identity)
 			key := string(encoded)
 			if _, ok := seen[key]; ok {
 				return nil, fmt.Errorf("[%s] expected list items to be unique", path)
