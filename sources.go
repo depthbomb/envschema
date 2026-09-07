@@ -231,3 +231,52 @@ func (variable Variable) Deprecated(message string) Variable {
 
 	return variable
 }
+
+// ValidateKnownVariables rejects undeclared names within the supplied prefixes.
+// Primary names, fallback names, and companion file names are all recognized.
+func ValidateKnownVariables(schema Schema, source Source, prefixes ...string) error {
+	if err := schema.Validate(); err != nil {
+		return err
+	}
+	if source == nil {
+		return fmt.Errorf("envschema: nil source")
+	}
+	known := make(map[string]bool)
+	for _, variable := range schema.Variables {
+		known[variable.Name] = true
+		for _, name := range variable.Fallbacks {
+			known[name] = true
+		}
+		if values, ok := policy(variable.Rule, "fileSource"); ok {
+			known[values[0]] = true
+		}
+	}
+	unknown := make([]string, 0)
+	for _, name := range source.Names() {
+		if known[name] {
+			continue
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				unknown = append(unknown, name)
+				break
+			}
+		}
+	}
+	sort.Strings(unknown)
+	if len(unknown) > 0 {
+		return fmt.Errorf("envschema: unknown environment variables: %s", strings.Join(unknown, ", "))
+	}
+
+	return nil
+}
+
+// LoadSource parses an enumerable source, rejecting unknown names within prefixes.
+// With no prefixes, unrelated environment variables are allowed.
+func LoadSource(schema Schema, source Source, prefixes ...string) (Values, error) {
+	if err := ValidateKnownVariables(schema, source, prefixes...); err != nil {
+		return nil, err
+	}
+
+	return LoadFrom(schema, source.Lookup)
+}

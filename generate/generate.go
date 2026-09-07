@@ -885,6 +885,10 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	fmt.Fprintf(&source, "\t\treturn %s{}, err\n\t}\n\n", options.Type)
 	source.WriteString("\treturn LoadFrom(lookup)\n}\n")
 
+	fmt.Fprintf(&source, "\nfunc LoadSource(input envschema.Source, prefixes ...string) (%s,error) {\n", options.Type)
+	fmt.Fprintf(&source, "if err := envschema.ValidateKnownVariables(generatedSchema,input,prefixes...); err != nil { return %s{},err }\n", options.Type)
+	source.WriteString("return LoadFrom(input.Lookup)\n}\n")
+
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("generate: format source: %w\n%s", err, source.String())

@@ -59,3 +59,15 @@ func TestSourceReport(t *testing.T) {
 		t.Fatalf("%v %#v %v", values, report, err)
 	}
 }
+
+func TestUnknownVariables(t *testing.T) {
+	schema := envschema.Must(envschema.Var("APP_TIMEOUT", envschema.Int()).FallbackTo("APP_OLD"))
+	source := envschema.MapSource{Values: map[string]string{"APP_OLD": "3", "PATH": "other"}}
+	if _, err := envschema.LoadSource(schema, source, "APP_"); err != nil {
+		t.Fatal(err)
+	}
+	source.Values["APP_TIMOUT"] = "4"
+	if _, err := envschema.LoadSource(schema, source, "APP_"); err == nil {
+		t.Fatal("accepted typo")
+	}
+}
