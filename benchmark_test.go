@@ -102,6 +102,20 @@ func BenchmarkSchemaInitializationNative(b *testing.B) {
 	}
 }
 
+func BenchmarkPatternSchemaInitialization(b *testing.B) {
+	variables := make([]envschema.Variable, 10)
+	for index := range variables {
+		variables[index] = envschema.Var(fmt.Sprintf("V%d", index), envschema.String().Matching(`^[a-z][a-z0-9_-]{2,63}$`))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := envschema.New(variables...); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkAdvancedLoadFrom(b *testing.B) {
 	schema := envschema.Must(
 		envschema.Var("TEXT", envschema.String().Matching(`^[a-z0-9_-]+$`).WithMinLength(3)),

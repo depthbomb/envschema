@@ -245,6 +245,19 @@ var compiledPatterns sync.Map
 
 var parsedSemanticVersions sync.Map
 
+func compiledPattern(expression string) (*regexp.Regexp, error) {
+	if cached, exists := compiledPatterns.Load(expression); exists {
+		return cached.(*regexp.Regexp), nil
+	}
+	compiled, err := regexp.Compile(expression)
+	if err != nil {
+		return nil, err
+	}
+	cached, _ := compiledPatterns.LoadOrStore(expression, compiled)
+
+	return cached.(*regexp.Regexp), nil
+}
+
 func rule(kind Kind, options ...Option) Rule {
 	rule := Rule{Kind: kind, Required: true, ListTrim: true, Padding: PaddingOptional, PathKind: PathAny, UUID: UUIDAny}
 	for _, option := range options {
@@ -532,11 +545,9 @@ func validateRule(rule Rule, path string) error {
 	}
 
 	if rule.Pattern != "" {
-		compiled, err := regexp.Compile(rule.Pattern)
-		if err != nil {
+		if _, err := compiledPattern(rule.Pattern); err != nil {
 			return fmt.Errorf("envschema: %s has an invalid pattern: %w", path, err)
 		}
-		compiledPatterns.Store(rule.Pattern, compiled)
 	}
 
 	if rule.Kind == KindEnum && len(rule.Choices) == 0 {

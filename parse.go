@@ -224,12 +224,11 @@ func parseString(rule Rule, raw any, path string) (any, error) {
 	}
 
 	if rule.Pattern != "" {
-		cached, ok := compiledPatterns.Load(rule.Pattern)
-		if !ok {
-			compiled := regexp.MustCompile(rule.Pattern)
-			cached, _ = compiledPatterns.LoadOrStore(rule.Pattern, compiled)
+		compiled, err := compiledPattern(rule.Pattern)
+		if err != nil {
+			return nil, fmt.Errorf("[%s] invalid pattern: %w", path, err)
 		}
-		if !cached.(*regexp.Regexp).MatchString(value) {
+		if !compiled.MatchString(value) {
 			return nil, fmt.Errorf("[%s] expected pattern %s", path, rule.Pattern)
 		}
 	}
