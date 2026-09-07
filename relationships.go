@@ -3,6 +3,8 @@ package envschema
 import (
 	"fmt"
 	"reflect"
+	"slices"
+	"time"
 )
 
 func collectionRule(rule Rule) *Rule {
@@ -43,10 +45,12 @@ func relationshipItems(value any) []any {
 	var items []any
 	switch reflected.Kind() {
 	case reflect.Slice, reflect.Array:
+		items = make([]any, 0, reflected.Len())
 		for i := 0; i < reflected.Len(); i++ {
 			items = append(items, reflected.Index(i).Interface())
 		}
 	case reflect.Map:
+		items = make([]any, 0, reflected.Len())
 		for _, key := range reflected.MapKeys() {
 			items = append(items, key.Interface())
 		}
@@ -67,7 +71,90 @@ func relationshipEqual(left, right any) bool {
 	return reflect.DeepEqual(left, right)
 }
 
+// Primitive equality matches reflect.DeepEqual without reflection or boxing.
+// Small collections use a scan to avoid paying for an index.
+func comparableRelationship[T comparable](kind ConstraintKind, left any, items []T) (bool, bool) {
+	if kind == ConstraintMemberOf {
+		candidate, ok := left.(T)
+
+		return ok && slices.Contains(items, candidate), true
+	}
+	candidates, ok := left.([]T)
+	if !ok {
+		return false, false
+	}
+
+	if len(candidates) == 0 {
+		return true, true
+	}
+	var indexed map[T]struct{}
+	if len(items) > 16 && len(candidates) > 1 {
+		indexed = make(map[T]struct{}, len(items))
+		for _, item := range items {
+			indexed[item] = struct{}{}
+		}
+	}
+	for _, candidate := range candidates {
+		found := false
+		if indexed != nil {
+			_, found = indexed[candidate]
+		} else {
+			found = slices.Contains(items, candidate)
+		}
+
+		if kind == ConstraintDisjoint && found || kind != ConstraintDisjoint && !found {
+			return false, true
+		}
+	}
+
+	return true, true
+}
+
 func checkRelationship(kind ConstraintKind, left, right any) bool {
+	if protected, ok := left.(interface{ protectedValue() any }); ok {
+		left = protected.protectedValue()
+	}
+
+	if protected, ok := right.(interface{ protectedValue() any }); ok {
+		right = protected.protectedValue()
+	}
+
+	if values, ok := right.(map[string]any); ok {
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		right = keys
+	}
+
+	if kind != ConstraintMemberOf {
+		if values, ok := left.(map[string]any); ok {
+			keys := make([]string, 0, len(values))
+			for key := range values {
+				keys = append(keys, key)
+			}
+			left = keys
+		}
+	}
+	var result, handled bool
+	switch items := right.(type) {
+	case []string:
+		result, handled = comparableRelationship(kind, left, items)
+	case []int64:
+		result, handled = comparableRelationship(kind, left, items)
+	case []uint64:
+		result, handled = comparableRelationship(kind, left, items)
+	case []float64:
+		result, handled = comparableRelationship(kind, left, items)
+	case []bool:
+		result, handled = comparableRelationship(kind, left, items)
+	case []time.Duration:
+		result, handled = comparableRelationship(kind, left, items)
+	}
+	if handled {
+		return result
+	}
+
 	items := relationshipItems(right)
 	candidates := []any{left}
 	if kind != ConstraintMemberOf {
