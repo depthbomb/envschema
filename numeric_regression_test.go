@@ -81,3 +81,19 @@ func TestLargeIntegerConstraintsRemainExact(t *testing.T) {
 		}
 	}
 }
+
+func TestDecimalConstraintsUseDecimalBounds(t *testing.T) {
+	for _, rule := range []Rule{Decimal().MultipleOf(0.1), Decimal().Between(0.3, 0.3), Decimal().GreaterThan(0.2).LessThan(0.4)} {
+		if _, err := parseRule(rule, "0.3", "VALUE"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rule := range []Rule{Decimal().MultipleOf(0.1), Decimal().AtMost(0.3), Decimal().AtLeast(0.32)} {
+		if _, err := parseRule(rule, "0.31", "VALUE"); err == nil {
+			t.Error("decimal constraint accepted 0.31")
+		}
+	}
+	if _, err := parseRule(Decimal().MultipleOf(1e-10), "0.0000000003", "VALUE"); err != nil {
+		t.Fatal(err)
+	}
+}

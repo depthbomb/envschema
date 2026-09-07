@@ -916,7 +916,8 @@ func CertificateBundle(options ...Option) Rule { return rule(KindCertBundle, opt
 // BigInt returns an environment-schema value configured by its arguments.
 func BigInt(options ...Option) Rule { return rule(KindBigInt, options...) }
 
-// Decimal returns an environment-schema value configured by its arguments.
+// Decimal returns an exact decimal rule. Numeric bounds and multiples use the
+// shortest decimal representation of their float64 arguments.
 func Decimal(options ...Option) Rule { return rule(KindDecimal, options...) }
 
 // MediaType returns an environment-schema value configured by its arguments.
