@@ -2839,7 +2839,7 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 			value, exists = lookup(variable.Fallbacks[index])
 		}
 
-		if !exists && variable.Rule.HasDefault {
+		if (!exists || value == "" && !variable.Rule.EmptyAllowed) && variable.Rule.HasDefault {
 			return fmt.Sprint(variable.Rule.Default), true
 		}
 
