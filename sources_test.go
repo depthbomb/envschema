@@ -1,6 +1,7 @@
 package envschema_test
 
 import (
+	"errors"
 	"github.com/depthbomb/envschema"
 	"os"
 	"path/filepath"
@@ -123,5 +124,14 @@ func TestFileSnapshotAndAbsentFallbackReport(t *testing.T) {
 	}
 	if _, exists := values["OPTIONAL"]; exists {
 		t.Fatalf("absent fallback populated: %v %+v", values, report)
+	}
+}
+
+func TestReportAggregatesSourceFailures(t *testing.T) {
+	schema := envschema.Must(envschema.Var("A", envschema.String().FromFile("A_FILE", envschema.PreferFile)), envschema.Var("B", envschema.Int()))
+	_, _, err := envschema.LoadWithReport(schema, envschema.MapSource{Values: map[string]string{"A_FILE": filepath.Join(t.TempDir(), "missing"), "B": "bad"}})
+	var failures *envschema.ValidationErrors
+	if !errors.As(err, &failures) || len(failures.Issues) != 2 || failures.Issues[0].Code != "source" {
+		t.Fatalf("%v", err)
 	}
 }

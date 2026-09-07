@@ -179,6 +179,8 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 	resolved := make(map[string]string)
 	prepared := schema
 	prepared.Variables = append([]Variable(nil), schema.Variables...)
+	var failures []error
+	failed := make(map[string]bool)
 	for i, variable := range schema.Variables {
 		selected := variable.Name
 		raw, present := source.Lookup(selected)
@@ -199,7 +201,9 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 		var err error
 		raw, present, err = readVariableSource(&variable.Rule, variable.Name, variable.Fallbacks, source.Lookup)
 		if err != nil {
-			return nil, report, err
+			failures = append(failures, validationError(variable.Name, "source", err))
+			failed[variable.Name] = true
+			continue
 		}
 		if present {
 			resolved[variable.Name] = raw
@@ -221,9 +225,43 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 		}
 
 	}
-	values, err := LoadFrom(prepared, func(name string) (string, bool) { value, ok := resolved[name]; return value, ok })
+	if len(failed) > 0 {
+		variables := make([]Variable, 0, len(prepared.Variables))
+		constraints := make([]Constraint, 0, len(prepared.Constraints))
+		for _, variable := range prepared.Variables {
+			if !failed[variable.Name] {
+				variables = append(variables, variable)
+			}
+		}
+		for _, constraint := range prepared.Constraints {
+			skip := false
+			for _, name := range constraint.Names {
+				if failed[name] {
+					skip = true
+					break
+				}
+			}
+			if !skip {
+				constraints = append(constraints, constraint)
+			}
+		}
+		prepared.Variables = variables
+		prepared.Constraints = constraints
+	}
+	values, err := LoadFrom(prepared, func(name string) (string, bool) {
+		value, ok := resolved[name]
 
-	return values, report, err
+		return value, ok
+	})
+	if err != nil {
+		failures = append(failures, err)
+	}
+	if err := JoinErrors(failures...); err != nil {
+		return nil, report, err
+	}
+
+	return values, report, nil
+
 }
 
 // Deprecated attaches migration guidance, emitted by LoadWithReport when supplied.
