@@ -22,7 +22,7 @@ func writeReportLoader(source *bytes.Buffer, schema envschema.Schema, typeName s
 		}
 		fmt.Fprintf(source, "if _,present:=values[%q];present {\n", variable.Name)
 		if variable.Rule.Kind == envschema.KindCustom && !variable.Rule.Redact {
-			fmt.Fprintf(source, "value,_,err:=envschema.ReadText[%s](generatedSchema.Variables[%d].Rule,%q,func(name string)(string,bool){value,present:=values[name].(string);return value,present})\n", base, i, variable.Name)
+			fmt.Fprintf(source, "value,_,err:=envschema.ReadText[%s](generatedSchema.Variables[%d].Rule,%q,func(name string)(string,bool){\nvalue,present:=values[name].(string)\n\nreturn value,present\n})\n", base, i, variable.Name)
 		} else {
 			fmt.Fprintf(source, "value,err:=envschema.ValueAs[%s](values,%s)\n", base, strconv.Quote(variable.Name))
 		}

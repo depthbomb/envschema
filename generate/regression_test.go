@@ -184,3 +184,55 @@ func TestErrors(t *testing.T) {
 }
 `)
 }
+
+func TestGeneratedFeatureComposition(t *testing.T) {
+	fragment := envschema.Must(
+		envschema.Var("MODE", envschema.OneOf("local", "production").DefaultTo("production")),
+		envschema.Var("URL", envschema.URL().QueryParameter("timeout", envschema.Int().PositiveOnly())).FallbackTo("OLD_URL").DescribedAs("Service URL"),
+		envschema.Var("TOKEN", envschema.String().Sensitive().ExplicitInput().FromFile("TOKEN_FILE", envschema.PreferFile)).Deprecated("rotate regularly"),
+		envschema.Var("UINT", envschema.Uint().AtMostUint64(18446744073709551614).DefaultTo(uint64(18446744073709551614))),
+		envschema.Var("AMOUNT", envschema.Decimal().WithPrecision(4).WithScale(2).MultipleOfDecimal("0.01").DefaultTo("12.34")),
+		envschema.Var("REGION", envschema.String().DefaultTo("a")),
+		envschema.Var("REGIONS", envschema.List(envschema.String()).DefaultTo("a,b")),
+		envschema.Var("REGIONS_COPY", envschema.List(envschema.String()).DefaultTo("a,b,c")),
+		envschema.Var("DISABLED", envschema.Map(envschema.String(), envschema.Int()).AllowedKeys("c").RequiredKeys("c").UniqueKeys().DefaultTo("c=1")),
+		envschema.Var("SUBNETS", envschema.List(envschema.CIDR()).NonOverlapping().SubnetsOf("10.0.0.0/8").DefaultTo("10.0.0.0/24,10.1.0.0/24")),
+		envschema.Var("OBJECTS", envschema.Array(envschema.Object(envschema.Field("items", envschema.List(envschema.Int())), envschema.Field("tag", envschema.String().Optional())))),
+	).ValidateWhen("MODE", "production", "URL", envschema.URL().HTTPSOnly()).MemberOf("REGION", "REGIONS").DisjointWith("REGIONS", "DISABLED").SubsetOf("REGIONS", "REGIONS_COPY")
+	schema := envschema.Must().WithGroup("Service", "APP_", fragment)
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []envschema.Schema{schema, envschema.MustSchemaJSON(string(encoded))} {
+		testGeneratedPackage(t, candidate, `package config
+import (
+ "testing"
+ "os"
+ "path/filepath"
+ "strings"
+ "github.com/depthbomb/envschema"
+)
+func TestComposition(t *testing.T) {
+ filename:=filepath.Join(t.TempDir(),"token")
+ if err:=os.WriteFile(filename,[]byte("secret-value"),0600);err!=nil{t.Fatal(err)}
+ input:=envschema.MapSource{Values:map[string]string{
+  "APP_OLD_URL":"https://host?timeout=2",
+  "APP_TOKEN_FILE":filename,
+  "APP_OBJECTS":"[{\"items\":\"1,2\"}]",
+ },Label:"test"}
+ config,report,err:=LoadWithReport(input)
+ if err!=nil{t.Fatal(err)}
+ if config.Service.Token.Release()!="secret-value" || !report.Origins["APP_TOKEN"].File || len(report.Notices)!=2 || config.Service.Uint!=uint64(18446744073709551614) || config.Service.Objects[0].Items[1]!=2 || config.Service.Objects[0].Tag!=nil {t.Fatalf("%v %+v",config,report)}
+ if _,err:=LoadSource(input,"APP_");err!=nil{t.Fatal(err)}
+ input.Values["APP_TYPO"]="x"
+ if _,err:=LoadSource(input,"APP_");err==nil{t.Fatal("unknown input accepted")}
+ delete(input.Values,"APP_TYPO")
+ input.Values["APP_OLD_URL"]="http://host?timeout=2"
+ if _,err:=LoadFrom(input.Lookup);err==nil{t.Fatal("conditional rule skipped")}
+ input.Values["APP_OLD_URL"]="https://host?timeout=0"
+ if _,err:=LoadFrom(input.Lookup);err==nil || !strings.Contains(err.Error(),"query.timeout"){t.Fatalf("query rule skipped: %v",err)}
+}
+`)
+	}
+}

@@ -17,6 +17,8 @@ func FuzzParseEnvFile(f *testing.F) {
 func FuzzSchemaJSON(f *testing.F) {
 	for _, seed := range []string{
 		`{"variables":[]}`,
+		`{"variables":[{"name":"VALUE","rule":{"kind":"object","fields":[{"name":"count","rule":{"kind":"int","sensitive":true}}]}}]}`,
+		`{"variables":[{"name":"VALUE","rule":{"kind":"decimal","policies":{"exactMin":["0.01"],"decimalScale":["2"]}}}]}`,
 		`{"variables":[{"name":"VALUE","rule":{"kind":"string"}}]}`,
 		`{}`,
 	} {
@@ -38,6 +40,8 @@ func FuzzStructuredValues(f *testing.F) {
 		_, _ = parseJSON(JSON().AtMostDepth(16).UniqueObjectKeys(), value, "VALUE")
 		_, _ = parseArray(Array(String()), value, "VALUE")
 		_, _ = parseMap(Map(String(), String()), value, "VALUE")
+		_, _ = parseRule(Object(Field("items", Array(Int().Sensitive())), Field("timeout", Duration().Optional())), value, "VALUE")
+		_, _ = parseRule(URL().QueryParameter("timeout", Int()), value, "VALUE")
 	})
 }
 

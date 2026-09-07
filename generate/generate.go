@@ -771,18 +771,6 @@ func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
 	}
 }
 
-func constraintsParseValues(schema envschema.Schema) bool {
-	for _, constraint := range schema.Constraints {
-		switch constraint.Kind {
-		case envschema.ConstraintMemberOf, envschema.ConstraintSubsetOf, envschema.ConstraintDisjoint, envschema.ConstraintValidateWhen, envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless,
-			envschema.ConstraintEqualValues, envschema.ConstraintDifferentValues, envschema.ConstraintLessThanVariable:
-			return true
-		}
-	}
-
-	return false
-}
-
 // Source returns formatted Go source for a validated schema.
 func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	if err := schema.Validate(); err != nil {
