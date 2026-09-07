@@ -2948,6 +2948,18 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 		}
 
 		switch constraint.Kind {
+		case ConstraintMemberOf, ConstraintSubsetOf, ConstraintDisjoint:
+			left, leftPresent, err := parsedValue(constraint.Names[0])
+			if err != nil {
+				return err
+			}
+			right, rightPresent, err := parsedValue(constraint.Names[1])
+			if err != nil {
+				return err
+			}
+			if leftPresent && rightPresent && !checkRelationship(constraint.Kind, left, right) {
+				return fmt.Errorf("envschema: %s relationship failed for %s and %s", constraint.Kind, constraint.Names[0], constraint.Names[1])
+			}
 		case ConstraintValidateWhen:
 			matches, err := conditionMatches(constraint.Names[0], constraint.Value)
 			if err != nil {

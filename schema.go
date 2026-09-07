@@ -446,13 +446,13 @@ func (schema Schema) Validate() error {
 	}
 	for _, constraint := range schema.Constraints {
 		switch constraint.Kind {
-		case ConstraintValidateWhen, ConstraintExactlyOne, ConstraintAtLeastOne, ConstraintMutuallyExclusive, ConstraintRequiredTogether,
+		case ConstraintMemberOf, ConstraintSubsetOf, ConstraintDisjoint, ConstraintValidateWhen, ConstraintExactlyOne, ConstraintAtLeastOne, ConstraintMutuallyExclusive, ConstraintRequiredTogether,
 			ConstraintRequiredWhen, ConstraintForbiddenWhen, ConstraintRequiredUnless, ConstraintRequiredIfPresent,
 			ConstraintEqualValues, ConstraintDifferentValues, ConstraintLessThanVariable, ConstraintTLSKeyPair:
 		default:
 			return fmt.Errorf("envschema: unsupported constraint %q", constraint.Kind)
 		}
-		exactlyTwo := constraint.Kind == ConstraintValidateWhen || constraint.Kind == ConstraintEqualValues || constraint.Kind == ConstraintDifferentValues ||
+		exactlyTwo := constraint.Kind == ConstraintMemberOf || constraint.Kind == ConstraintSubsetOf || constraint.Kind == ConstraintDisjoint || constraint.Kind == ConstraintValidateWhen || constraint.Kind == ConstraintEqualValues || constraint.Kind == ConstraintDifferentValues ||
 			constraint.Kind == ConstraintLessThanVariable || constraint.Kind == ConstraintTLSKeyPair
 		if len(constraint.Names) < 2 || exactlyTwo && len(constraint.Names) != 2 {
 			expected := "at least two"
@@ -471,6 +471,11 @@ func (schema Schema) Validate() error {
 				return fmt.Errorf("envschema: %s constraint repeats variable %q", constraint.Kind, name)
 			}
 			constraintNames[name] = struct{}{}
+		}
+		if constraint.Kind == ConstraintMemberOf || constraint.Kind == ConstraintSubsetOf || constraint.Kind == ConstraintDisjoint {
+			if err := validateRelationship(constraint, rules); err != nil {
+				return err
+			}
 		}
 		if constraint.Kind == ConstraintValidateWhen {
 			if err := validateConditional(constraint, rules); err != nil {

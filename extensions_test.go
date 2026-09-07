@@ -109,3 +109,14 @@ func TestConditionalValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectionRelationships(t *testing.T) {
+	schema := envschema.Must(envschema.Var("DEFAULT", envschema.String()), envschema.Var("ENABLED", envschema.List(envschema.String())), envschema.Var("BLOCKED", envschema.Map(envschema.String(), envschema.Int()))).MemberOf("DEFAULT", "ENABLED").DisjointWith("ENABLED", "BLOCKED")
+	for _, enabled := range []string{"a,b", "b,c", "a,c"} {
+		values := map[string]string{"DEFAULT": "a", "ENABLED": enabled, "BLOCKED": "c=1"}
+		_, err := envschema.LoadFrom(schema, func(name string) (string, bool) { value, ok := values[name]; return value, ok })
+		if (err == nil) != (enabled == "a,b") {
+			t.Fatalf("%s: %v", enabled, err)
+		}
+	}
+}

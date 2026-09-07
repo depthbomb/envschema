@@ -637,6 +637,9 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 			expression.WriteString("." + method + "(" + args[0] + "," + strconv.Quote(constraint.Value) + "," + strings.Join(args[1:], ",") + ")")
 		default:
 			method := map[envschema.ConstraintKind]string{
+				envschema.ConstraintMemberOf:          "MemberOf",
+				envschema.ConstraintSubsetOf:          "SubsetOf",
+				envschema.ConstraintDisjoint:          "DisjointWith",
 				envschema.ConstraintExactlyOne:        "ExactlyOneOf",
 				envschema.ConstraintAtLeastOne:        "AtLeastOneOf",
 				envschema.ConstraintMutuallyExclusive: "MutuallyExclusive",
@@ -761,7 +764,7 @@ func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
 func constraintsParseValues(schema envschema.Schema) bool {
 	for _, constraint := range schema.Constraints {
 		switch constraint.Kind {
-		case envschema.ConstraintValidateWhen, envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless,
+		case envschema.ConstraintMemberOf, envschema.ConstraintSubsetOf, envschema.ConstraintDisjoint, envschema.ConstraintValidateWhen, envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless,
 			envschema.ConstraintEqualValues, envschema.ConstraintDifferentValues, envschema.ConstraintLessThanVariable:
 			return true
 		}
