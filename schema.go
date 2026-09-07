@@ -59,7 +59,7 @@ type Rule struct {
 	Choices             []string            `json:"choices,omitempty"`
 	Item                *Rule               `json:"item,omitempty"`
 	Separator           string              `json:"separator,omitempty"`
-	ListTrim            bool                `json:"listTrim,omitempty"`
+	ListTrim            bool                `json:"listTrim"`
 	Unique              bool                `json:"unique,omitempty"`
 	PathKind            PathKind            `json:"pathKind,omitempty"`
 	Exists              bool                `json:"exists,omitempty"`
