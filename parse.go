@@ -865,7 +865,11 @@ func parseArray(rule Rule, raw any, path string) (any, error) {
 	var items []any
 	switch raw := raw.(type) {
 	case string:
-		decoder := json.NewDecoder(strings.NewReader(raw))
+		trimmed := strings.TrimSpace(raw)
+		if len(trimmed) == 0 || trimmed[0] != '[' || !json.Valid([]byte(trimmed)) {
+			return nil, fmt.Errorf("[%s] expected valid JSON array", path)
+		}
+		decoder := json.NewDecoder(strings.NewReader(trimmed))
 		decoder.UseNumber()
 		if err := decoder.Decode(&items); err != nil {
 			return nil, fmt.Errorf("[%s] expected valid JSON array", path)
