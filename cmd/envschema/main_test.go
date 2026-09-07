@@ -102,3 +102,26 @@ func TestRunUsesDefaultTarget(t *testing.T) {
 		t.Fatalf("run() error = %v, stderr = %s", err, stderr.String())
 	}
 }
+
+func TestToolCommands(t *testing.T) {
+	t.Setenv("DATABASE_URL", "https://database.example")
+	t.Setenv("ALLOWED_HOSTS", "localhost")
+	t.Setenv("API_TOKEN", "test-secret")
+	t.Setenv("LOG_LEVEL", "info")
+	directory := t.TempDir()
+	for _, command := range []string{"example", "describe", "check"} {
+		var output bytes.Buffer
+		args := []string{command, "-directory", directory, "../../example/config/schema"}
+		if err := runTool(args, &output, &output); err != nil {
+			t.Fatalf("%s: %v %s", command, err, output.String())
+		}
+		if strings.Contains(output.String(), "test-secret") {
+			t.Fatal("secret leaked")
+		}
+	}
+	t.Setenv("LOG_LEVEL", "invalid-level")
+	var output bytes.Buffer
+	if err := runTool([]string{"check", "-directory", directory, "../../example/config/schema"}, &output, &output); err == nil {
+		t.Fatal("custom validation skipped")
+	}
+}

@@ -612,6 +612,9 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 			}
 			constructor += ".InGroup(" + strings.Join(groups, ",") + ")"
 		}
+		if variable.Description != "" {
+			constructor += ".DescribedAs(" + strconv.Quote(variable.Description) + ")"
+		}
 		if variable.Deprecation != "" {
 			constructor += ".Deprecated(" + strconv.Quote(variable.Deprecation) + ")"
 		}

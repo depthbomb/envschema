@@ -113,6 +113,7 @@ type Rule struct {
 
 // Variable associates an environment name and optional fallbacks with a rule.
 type Variable struct {
+	Description string   `json:"description,omitempty"`
 	Groups      []string `json:"groups,omitempty"`
 	Deprecation string   `json:"deprecation,omitempty"`
 	Name        string   `json:"name"`

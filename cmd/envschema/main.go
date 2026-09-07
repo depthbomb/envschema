@@ -14,6 +14,8 @@ import (
 
 func usage(writer io.Writer) {
 	fmt.Fprintln(writer, "Usage: envschema generate [options] schema-package")
+	fmt.Fprintln(writer, "       envschema check [-directory path] [-prefix APP_] [-name Provider] schema-package")
+	fmt.Fprintln(writer, "       envschema example|describe [-name Provider] schema-package")
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Options:")
 	fmt.Fprintln(writer, "  -name string      provider type when the package contains more than one")
@@ -36,6 +38,10 @@ func packageName(directory string) string {
 }
 
 func run(arguments []string, stderr io.Writer) error {
+	if len(arguments) > 0 && (arguments[0] == "check" || arguments[0] == "example" || arguments[0] == "describe") {
+		return runTool(arguments, os.Stdout, stderr)
+	}
+
 	if len(arguments) == 0 || arguments[0] != "generate" {
 		usage(stderr)
 

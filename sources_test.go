@@ -4,6 +4,7 @@ import (
 	"github.com/depthbomb/envschema"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +70,17 @@ func TestUnknownVariables(t *testing.T) {
 	source.Values["APP_TIMOUT"] = "4"
 	if _, err := envschema.LoadSource(schema, source, "APP_"); err == nil {
 		t.Fatal("accepted typo")
+	}
+}
+
+func TestSchemaDocumentation(t *testing.T) {
+	schema := envschema.Must(envschema.Var("PORT", envschema.Port().DefaultTo(8080)).DescribedAs("HTTP | port"), envschema.Var("TOKEN", envschema.String().DefaultTo("do-not-leak").Sensitive()))
+	example, err := envschema.Example(schema)
+	if err != nil || strings.Contains(example, "do-not-leak") || !strings.Contains(example, "PORT=") {
+		t.Fatalf("%s %v", example, err)
+	}
+	documentation, err := envschema.Documentation(schema)
+	if err != nil || strings.Contains(documentation, "do-not-leak") || !strings.Contains(documentation, "[redacted]") {
+		t.Fatalf("%s %v", documentation, err)
 	}
 }
