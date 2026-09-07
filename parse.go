@@ -1565,10 +1565,7 @@ func parseURLRule(rule Rule, raw any, path string) (any, error) {
 		if parsed.IsAbs() || strings.HasPrefix(value, "//") || value == "" {
 			return nil, fmt.Errorf("[%s] expected relative URL", path)
 		}
-
-		return value, nil
-	}
-	if !parsed.IsAbs() || parsed.Hostname() == "" {
+	} else if !parsed.IsAbs() || parsed.Hostname() == "" {
 		if _, allowed := policy(rule, policyAllowRelative); !allowed {
 			return nil, fmt.Errorf("[%s] expected valid URL", path)
 		}
@@ -1594,7 +1591,7 @@ func parseURLRule(rule Rule, raw any, path string) (any, error) {
 		}{
 			{rule.URLCredentials, parsed.User != nil, "credentials"},
 			{rule.URLPort, parsed.Port() != "", "port"},
-			{rule.URLQuery, parsed.RawQuery != "", "query"},
+			{rule.URLQuery, parsed.RawQuery != "" || parsed.ForceQuery, "query"},
 			{rule.URLFragment, parsed.Fragment != "", "fragment"},
 		}
 		for _, check := range checks {
