@@ -150,29 +150,29 @@ func valueLiteral(value any) (string, error) {
 	case int:
 		return strconv.Itoa(value), nil
 	case int8:
-		return strconv.FormatInt(int64(value), 10), nil
+		return "int8(" + strconv.FormatInt(int64(value), 10) + ")", nil
 	case int16:
-		return strconv.FormatInt(int64(value), 10), nil
+		return "int16(" + strconv.FormatInt(int64(value), 10) + ")", nil
 	case int32:
-		return strconv.FormatInt(int64(value), 10), nil
+		return "int32(" + strconv.FormatInt(int64(value), 10) + ")", nil
 	case int64:
-		return strconv.FormatInt(value, 10), nil
+		return "int64(" + strconv.FormatInt(value, 10) + ")", nil
 	case uint:
-		return strconv.FormatUint(uint64(value), 10), nil
+		return "uint(" + strconv.FormatUint(uint64(value), 10) + ")", nil
 	case uint8:
-		return strconv.FormatUint(uint64(value), 10), nil
+		return "uint8(" + strconv.FormatUint(uint64(value), 10) + ")", nil
 	case uint16:
-		return strconv.FormatUint(uint64(value), 10), nil
+		return "uint16(" + strconv.FormatUint(uint64(value), 10) + ")", nil
 	case uint32:
-		return strconv.FormatUint(uint64(value), 10), nil
+		return "uint32(" + strconv.FormatUint(uint64(value), 10) + ")", nil
 	case uint64:
-		return strconv.FormatUint(value, 10), nil
+		return "uint64(" + strconv.FormatUint(value, 10) + ")", nil
 	case float32:
-		return strconv.FormatFloat(float64(value), 'g', -1, 32), nil
+		return "float32(" + strconv.FormatFloat(float64(value), 'g', -1, 32) + ")", nil
 	case float64:
-		return strconv.FormatFloat(value, 'g', -1, 64), nil
+		return "float64(" + strconv.FormatFloat(value, 'g', -1, 64) + ")", nil
 	case json.Number:
-		return value.String(), nil
+		return "json.Number(" + strconv.Quote(value.String()) + ")", nil
 	case json.RawMessage:
 		return "json.RawMessage(" + strconv.Quote(string(value)) + ")", nil
 	case big.Int:
@@ -652,6 +652,41 @@ func sourceTypeFor(rule envschema.Rule, imports map[string]string) (string, erro
 	return typeFor(rule)
 }
 
+func defaultImports(value any, imports map[string]string) {
+	switch value := value.(type) {
+	case json.Number, json.RawMessage:
+		imports["json"] = "encoding/json"
+	case big.Int, big.Rat:
+		imports["big"] = "math/big"
+	case fs.FileMode:
+		imports["fs"] = "io/fs"
+	case net.HardwareAddr:
+		imports["net"] = "net"
+	case []any:
+		for _, item := range value {
+			defaultImports(item, imports)
+		}
+	case map[string]any:
+		for _, item := range value {
+			defaultImports(item, imports)
+		}
+	}
+}
+
+func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
+	if rule.HasDefault {
+		defaultImports(rule.Default, imports)
+	}
+
+	if rule.Item != nil {
+		ruleDefaultImports(*rule.Item, imports)
+	}
+
+	if rule.Key != nil {
+		ruleDefaultImports(*rule.Key, imports)
+	}
+}
+
 // Source returns formatted Go source for a validated schema.
 func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	if err := schema.Validate(); err != nil {
@@ -669,6 +704,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	imports := map[string]string{"envschema": reflect.TypeFor[envschema.Schema]().PkgPath()}
 	seenNames := make(map[string]string, len(schema.Variables))
 	for index, variable := range schema.Variables {
+		ruleDefaultImports(variable.Rule, imports)
 		name := variable.GoName
 		if name == "" {
 			name = exportedName(variable.Name)
