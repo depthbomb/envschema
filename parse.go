@@ -75,9 +75,9 @@ func lookupOS(name string) (string, bool) {
 }
 
 func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc) (any, bool, error) {
-	rawValue, exists := lookup(name)
-	for index := 0; !exists && index < len(fallbacks); index++ {
-		rawValue, exists = lookup(fallbacks[index])
+	rawValue, exists, sourceErr := readVariableSource(rule, name, fallbacks, lookup)
+	if sourceErr != nil {
+		return nil, false, sourceErr
 	}
 
 	if _, explicit := policy(rule, "explicitInput"); explicit && (!exists || rawValue == "" && !rule.EmptyAllowed) {
@@ -2864,14 +2864,16 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 
 		return nil
 	}
+	var sourceErr error
 	read := func(name string) (string, bool) {
 		variable := variableFor(name)
 		if variable == nil {
 			return "", false
 		}
-		value, exists := lookup(name)
-		for index := 0; !exists && index < len(variable.Fallbacks); index++ {
-			value, exists = lookup(variable.Fallbacks[index])
+		value, exists, err := readVariableSource(variable.Rule, name, variable.Fallbacks, lookup)
+		if err != nil {
+			sourceErr = err
+			return "", false
 		}
 
 		if (!exists || value == "" && !variable.Rule.EmptyAllowed) && variable.Rule.HasDefault {
@@ -2916,6 +2918,10 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 				present++
 			}
 		}
+		if sourceErr != nil {
+			return sourceErr
+		}
+
 		switch constraint.Kind {
 		case ConstraintExactlyOne:
 			if present != 1 {

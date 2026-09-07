@@ -593,6 +593,12 @@ func policyInt(rule Rule, name string) (int, bool) {
 
 func validatePolicies(rule Rule, path string) error {
 	for name, values := range rule.Policies {
+		if name == "fileSource" {
+			if len(values) != 2 || !envNamePattern.MatchString(values[0]) || !oneOf(values[1], "error", "value", "file") {
+				return fmt.Errorf("envschema: invalid file source")
+			}
+			continue
+		}
 		if name == "explicitInput" {
 			if len(values) != 0 {
 				return fmt.Errorf("envschema: explicitInput accepts no values")
