@@ -593,6 +593,12 @@ func policyInt(rule Rule, name string) (int, bool) {
 
 func validatePolicies(rule Rule, path string) error {
 	for name, values := range rule.Policies {
+		if name == "explicitInput" {
+			if len(values) != 0 {
+				return fmt.Errorf("envschema: explicitInput accepts no values")
+			}
+			continue
+		}
 		if name == "nonOverlapping" || name == "subnetsOf" {
 			if (rule.Kind != KindList && rule.Kind != KindArray) || rule.Item == nil || rule.Item.Kind != KindCIDR {
 				return fmt.Errorf("envschema: %s requires a CIDR collection", name)
@@ -947,4 +953,10 @@ func checkCIDRCollection(rule Rule, value any, path string) error {
 	}
 
 	return nil
+}
+
+// ExplicitInput requires supplied non-empty text (or an allowed empty value).
+// Defaults cannot satisfy this requirement; fallback names can.
+func (rule Rule) ExplicitInput() Rule {
+	return rule.WithPolicy("explicitInput")
 }

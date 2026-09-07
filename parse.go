@@ -80,6 +80,10 @@ func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc
 		rawValue, exists = lookup(fallbacks[index])
 	}
 
+	if _, explicit := policy(rule, "explicitInput"); explicit && (!exists || rawValue == "" && !rule.EmptyAllowed) {
+		return nil, false, fmt.Errorf("[%s] explicit input is required", name)
+	}
+
 	var raw any = rawValue
 	if !exists || rawValue == "" && !rule.EmptyAllowed {
 		if !rule.HasDefault {

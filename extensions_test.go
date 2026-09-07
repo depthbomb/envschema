@@ -50,3 +50,14 @@ func TestMapKeyContracts(t *testing.T) {
 func TestCIDRCollections(t *testing.T) {
 	checkRule(t, envschema.List(envschema.CIDR()).NonOverlapping().SubnetsOf("10.0.0.0/8"), []string{"10.0.0.0/24,10.1.0.0/24"}, []string{"10.0.0.0/16,10.0.1.0/24", "192.168.0.0/24", "::/0", "10.0.0.0/24,10.0.0.0/24"})
 }
+
+func TestExplicitInput(t *testing.T) {
+	schema := envschema.Must(envschema.Var("A", envschema.Int().DefaultTo(1).ExplicitInput()).FallbackTo("OLD"))
+	if _, err := envschema.LoadFrom(schema, func(string) (string, bool) { return "", false }); err == nil {
+		t.Fatal("default satisfied explicit input")
+	}
+	values, err := envschema.LoadFrom(schema, func(name string) (string, bool) { return "2", name == "OLD" })
+	if err != nil || values["A"] != int64(2) {
+		t.Fatalf("%v %v", values, err)
+	}
+}
