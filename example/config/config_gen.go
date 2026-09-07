@@ -3,6 +3,7 @@
 package config
 
 import (
+	"encoding/json"
 	custom "github.com/depthbomb/envschema/example/config/schema"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 var generatedSchema = envschema.Must(
 	envschema.Var("DATABASE_URL", envschema.URL()),
-	envschema.Var("PORT", envschema.Port().DefaultTo(8080)),
+	envschema.Var("PORT", envschema.Port().DefaultTo(json.Number("8080"))),
 	envschema.Var("DEBUG", envschema.Boolean().Optional()),
 	envschema.Var("REQUEST_TIMEOUT", envschema.Duration().DefaultTo("5s")),
 	envschema.Var("ALLOWED_HOSTS", envschema.List(envschema.Host()).UniqueItems()),
