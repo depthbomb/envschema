@@ -43,6 +43,7 @@ type Constraint struct {
 // Rule is the serializable, immutable-by-convention definition of one value.
 // Prefer constructors and fluent modifiers over populating its fields directly.
 type Rule struct {
+	Redact              bool                `json:"sensitive,omitempty"`
 	Kind                Kind                `json:"kind"`
 	Required            bool                `json:"required"`
 	Default             any                 `json:"default,omitempty"`
@@ -593,7 +594,7 @@ func validateRule(rule Rule, path string) error {
 		if rule.Key == nil || rule.Item == nil {
 			return fmt.Errorf("envschema: %s map needs key and value rules", path)
 		}
-		if rule.Key.Kind != KindString && rule.Key.Kind != KindEnum {
+		if rule.Key.Redact || rule.Key.Kind != KindString && rule.Key.Kind != KindEnum {
 			return fmt.Errorf("envschema: %s map keys must be strings or enums", path)
 		}
 		if rule.Separator == "" || rule.KeyValueSeparator == "" || rule.Separator == rule.KeyValueSeparator {
@@ -772,7 +773,7 @@ func (rule *Rule) UnmarshalJSON(data []byte) error {
 		"absolute": {}, "utc": {},
 		"customPackage": {}, "customName": {},
 		"strictBoolean": {}, "runeLength": {}, "noSurroundingSpace": {},
-		"policies": {},
+		"policies": {}, "sensitive": {},
 	}
 	for field := range fields {
 		if _, ok := allowedFields[field]; !ok {

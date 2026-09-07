@@ -61,3 +61,24 @@ func TestExplicitInput(t *testing.T) {
 		t.Fatalf("%v %v", values, err)
 	}
 }
+
+func TestSensitiveRules(t *testing.T) {
+	checkRule(t, envschema.URL().WithSchemes("postgres").Sensitive(), []string{"postgres://user:password@host/db"}, []string{"https://host"})
+	schema := envschema.Must(envschema.Var("TOKEN", envschema.Base64().ExactlyDecodedBytes(3).Sensitive()))
+	values, err := envschema.LoadFrom(schema, func(string) (string, bool) { return "YWJj", true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := envschema.ValueAs[envschema.Protected[string]](values, "TOKEN")
+	if err != nil || value.Release() != "YWJj" {
+		t.Fatalf("%v %v", value, err)
+	}
+	encoded, _ := json.Marshal(value)
+	if string(encoded) != "\"[redacted]\"" {
+		t.Fatalf("%s", encoded)
+	}
+}
+
+func TestSensitiveCollectionUniqueness(t *testing.T) {
+	checkRule(t, envschema.List(envschema.String().Sensitive()).UniqueItems(), []string{"a,b"}, []string{"a,a"})
+}

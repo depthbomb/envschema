@@ -105,6 +105,15 @@ func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc
 }
 
 func parseRule(rule Rule, raw any, path string) (any, error) {
+	if rule.Redact {
+		rule.Redact = false
+		value, err := parseRule(rule, raw, path)
+		if err != nil {
+			return nil, fmt.Errorf("[%s] invalid sensitive value", path)
+		}
+
+		return Protected[any]{value: value}, nil
+	}
 	value, err := parseRuleValue(rule, raw, path)
 	if err != nil {
 		return nil, err
@@ -1139,13 +1148,16 @@ func checkItemCount(rule Rule, count int, path string) error {
 }
 
 func canReuseStringItems(rule Rule, unique bool) bool {
-	return rule.Kind == KindString && !unique && len(rule.Policies) == 0 && !rule.Trim && rule.Pattern == "" &&
+	return !rule.Redact && rule.Kind == KindString && !unique && len(rule.Policies) == 0 && !rule.Trim && rule.Pattern == "" &&
 		rule.MinLength == nil && rule.MaxLength == nil && rule.Prefix == "" && rule.Suffix == "" &&
 		!rule.ASCII && !rule.Printable && !rule.NoWhitespace && !rule.Lowercase && !rule.Uppercase &&
 		!rule.NoSurroundingSpace
 }
 
 func parseItems(rule Rule, items []any, path string, unique bool) (any, error) {
+	if rule.Redact {
+		return parseUntypedItems(rule, items, path, unique)
+	}
 	switch rule.Kind {
 	case KindString, KindEnum, KindPath, KindBase64, KindEmail, KindURL, KindHost,
 		KindUUID, KindIP, KindHash, KindHex, KindSemVer, KindTimeZone, KindEndpoint,
@@ -1245,6 +1257,14 @@ func parseUntypedItems(rule Rule, items []any, path string, unique bool) ([]any,
 		}
 		parsed[index] = value
 
+		if unique && rule.Redact {
+			for _, prior := range parsed[:index] {
+				if reflect.DeepEqual(prior, value) {
+					return nil, fmt.Errorf("[%s] expected list items to be unique", path)
+				}
+			}
+			continue
+		}
 		if unique {
 			encoded, _ := json.Marshal(value)
 			key := string(encoded)
@@ -3256,6 +3276,17 @@ func assignValue(target reflect.Value, source reflect.Value) error {
 		source = source.Elem()
 	}
 
+	if source.CanInterface() {
+		if protected, ok := source.Interface().(interface{ protectedValue() any }); ok {
+			if target.CanAddr() {
+				if receiver, ok := target.Addr().Interface().(interface{ assignProtected(any) error }); ok {
+					return receiver.assignProtected(protected.protectedValue())
+				}
+			}
+
+			return fmt.Errorf("sensitive value requires a Protected target")
+		}
+	}
 	if source.Type().AssignableTo(target.Type()) {
 		target.Set(source)
 

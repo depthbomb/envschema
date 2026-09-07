@@ -138,3 +138,14 @@ func TestConstrainedValues(t *testing.T) {
 }
 `)
 }
+
+func TestGeneratedSensitive(t *testing.T) {
+	schema := envschema.Must(envschema.Var("TOKEN", envschema.Int().Sensitive()), envschema.Var("TOKENS", envschema.List(envschema.String().Sensitive())))
+	testGeneratedPackage(t, schema, `package config
+import "testing"
+func TestSensitive(t *testing.T) {
+ config,err:=LoadFrom(func(name string)(string,bool){if name=="TOKEN"{return "42",true};return "a,b",true})
+ if err!=nil || config.Token.Release()!=int64(42) || config.Tokens[1].Release()!="b" {t.Fatalf("%v %v",config,err)}
+}
+`)
+}

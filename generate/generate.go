@@ -239,6 +239,12 @@ func bigIntPointerLiteral(value big.Int) string {
 }
 
 func ruleLiteral(rule envschema.Rule) (string, error) {
+	if rule.Redact {
+		rule.Redact = false
+		inner, err := ruleLiteral(rule)
+
+		return inner + ".Sensitive()", err
+	}
 	var expression string
 	switch rule.Kind {
 	case envschema.KindString:
@@ -620,6 +626,12 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 }
 
 func sourceTypeFor(rule envschema.Rule, imports map[string]string) (string, error) {
+	if rule.Redact {
+		rule.Redact = false
+		inner, err := sourceTypeFor(rule, imports)
+
+		return "envschema.Protected[" + inner + "]", err
+	}
 	if rule.Kind == envschema.KindCustom {
 		alias := "custom"
 		for index := 0; ; index++ {
@@ -816,7 +828,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		source.WriteString("\tvalues, err := envschema.LoadFrom(generatedSchema, lookup)\n")
 		fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
 		for _, variable := range schema.Variables {
-			if variable.Rule.Kind == envschema.KindCustom {
+			if variable.Rule.Kind == envschema.KindCustom && !variable.Rule.Redact {
 				source.WriteString("\tcustomLookup := func(name string) (string, bool) {\n\t\tvalue, present := values[name].(string)\n\n\t\treturn value, present\n\t}\n")
 				break
 			}
@@ -830,7 +842,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		if optionalPointers[index] {
 			baseType = strings.TrimPrefix(baseType, "*")
 		}
-		if reuseValues && variable.Rule.Kind != envschema.KindCustom {
+		if reuseValues && (variable.Rule.Kind != envschema.KindCustom || variable.Rule.Redact) {
 			optional := !variable.Rule.Required && !variable.Rule.HasDefault
 			if optional {
 				fmt.Fprintf(&source, "\tif _, present := values[%q]; present {\n", variable.Name)
@@ -849,7 +861,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		}
 		reader := "envschema.Read"
 		lookupName := "lookup"
-		if variable.Rule.Kind == envschema.KindCustom {
+		if variable.Rule.Kind == envschema.KindCustom && !variable.Rule.Redact {
 			reader = "envschema.ReadText"
 			if reuseValues {
 				lookupName = "customLookup"
@@ -857,7 +869,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		}
 		fallbacks := ""
 		if len(variable.Fallbacks) != 0 && !reuseValues {
-			if variable.Rule.Kind == envschema.KindCustom {
+			if variable.Rule.Kind == envschema.KindCustom && !variable.Rule.Redact {
 				reader = "envschema.ReadTextWithFallbacks"
 			} else {
 				reader = "envschema.ReadWithFallbacks"
