@@ -579,7 +579,11 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 		variables[index] = constructor
 	}
 	var expression strings.Builder
-	expression.WriteString("envschema.Must(\n" + strings.Join(variables, ",\n") + ",\n)")
+	expression.WriteString("envschema.Must(")
+	if len(variables) != 0 {
+		expression.WriteString("\n" + strings.Join(variables, ",\n") + ",\n")
+	}
+	expression.WriteString(")")
 	for _, constraint := range schema.Constraints {
 		args := make([]string, len(constraint.Names))
 		for index, name := range constraint.Names {

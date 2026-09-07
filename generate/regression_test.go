@@ -60,6 +60,8 @@ func TestDefaults(t *testing.T) {
 		t.Fatalf("defaults changed: %+v", value)
 	}
 }
+
+
 `
 	testGeneratedPackage(t, schema, fixture)
 	encoded, err := json.Marshal(schema)
@@ -67,4 +69,20 @@ func TestDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	testGeneratedPackage(t, envschema.MustSchemaJSON(string(encoded)), fixture)
+}
+
+func TestGeneratedEmptySchema(t *testing.T) {
+	testGeneratedPackage(t, envschema.Must(), `package config
+import "testing"
+func TestEmpty(t *testing.T) {
+	_, err := LoadFrom(func(string) (string, bool) {
+		t.Fatal("empty schema performed a lookup")
+
+		return "", false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+`)
 }
