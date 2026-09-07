@@ -691,6 +691,18 @@ func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
 	}
 }
 
+func constraintsParseValues(schema envschema.Schema) bool {
+	for _, constraint := range schema.Constraints {
+		switch constraint.Kind {
+		case envschema.ConstraintRequiredWhen, envschema.ConstraintForbiddenWhen, envschema.ConstraintRequiredUnless,
+			envschema.ConstraintEqualValues, envschema.ConstraintDifferentValues, envschema.ConstraintLessThanVariable:
+			return true
+		}
+	}
+
+	return false
+}
+
 // Source returns formatted Go source for a validated schema.
 func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	if err := schema.Validate(); err != nil {
@@ -796,7 +808,17 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	source.WriteString("}\n\n")
 	fmt.Fprintf(&source, "func LoadFrom(lookup envschema.LookupFunc) (%s, error) {\n", options.Type)
 	fmt.Fprintf(&source, "\tvar config %s\n", options.Type)
-	if len(schema.Constraints) != 0 {
+	reuseValues := constraintsParseValues(schema)
+	if reuseValues {
+		source.WriteString("\tvalues, err := envschema.LoadFrom(generatedSchema, lookup)\n")
+		fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
+		for _, variable := range schema.Variables {
+			if variable.Rule.Kind == envschema.KindCustom {
+				source.WriteString("\tcustomLookup := func(name string) (string, bool) {\n\t\tvalue, present := values[name].(string)\n\n\t\treturn value, present\n\t}\n")
+				break
+			}
+		}
+	} else if len(schema.Constraints) != 0 {
 		source.WriteString("\tif err := envschema.ValidateConstraints(generatedSchema, lookup); err != nil {\n")
 		fmt.Fprintf(&source, "\t\treturn %s{}, err\n\t}\n", options.Type)
 	}
@@ -805,12 +827,33 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		if optionalPointers[index] {
 			baseType = strings.TrimPrefix(baseType, "*")
 		}
+		if reuseValues && variable.Rule.Kind != envschema.KindCustom {
+			optional := !variable.Rule.Required && !variable.Rule.HasDefault
+			if optional {
+				fmt.Fprintf(&source, "\tif _, present := values[%q]; present {\n", variable.Name)
+			}
+			fmt.Fprintf(&source, "\tvalue%d, err := envschema.ValueAs[%s](values, %q)\n", index, baseType, variable.Name)
+			fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
+			address := ""
+			if optionalPointers[index] {
+				address = "&"
+			}
+			fmt.Fprintf(&source, "\tconfig.%s = %svalue%d\n", names[index], address, index)
+			if optional {
+				source.WriteString("\t}\n")
+			}
+			continue
+		}
 		reader := "envschema.Read"
+		lookupName := "lookup"
 		if variable.Rule.Kind == envschema.KindCustom {
 			reader = "envschema.ReadText"
+			if reuseValues {
+				lookupName = "customLookup"
+			}
 		}
 		fallbacks := ""
-		if len(variable.Fallbacks) != 0 {
+		if len(variable.Fallbacks) != 0 && !reuseValues {
 			if variable.Rule.Kind == envschema.KindCustom {
 				reader = "envschema.ReadTextWithFallbacks"
 			} else {
@@ -823,11 +866,11 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 			fallbacks = ", []string{" + strings.Join(quoted, ",") + "}"
 		}
 		if optionalPointers[index] {
-			fmt.Fprintf(&source, "\tvalue%d, present%d, err := %s[%s](generatedSchema.Variables[%d].Rule, %q%s, lookup)\n", index, index, reader, baseType, index, variable.Name, fallbacks)
+			fmt.Fprintf(&source, "\tvalue%d, present%d, err := %s[%s](generatedSchema.Variables[%d].Rule, %q%s, %s)\n", index, index, reader, baseType, index, variable.Name, fallbacks, lookupName)
 			fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
 			fmt.Fprintf(&source, "\tif present%d {\n\t\tconfig.%s = &value%d\n\t}\n", index, names[index], index)
 		} else {
-			fmt.Fprintf(&source, "\tvalue%d, _, err := %s[%s](generatedSchema.Variables[%d].Rule, %q%s, lookup)\n", index, reader, baseType, index, variable.Name, fallbacks)
+			fmt.Fprintf(&source, "\tvalue%d, _, err := %s[%s](generatedSchema.Variables[%d].Rule, %q%s, %s)\n", index, reader, baseType, index, variable.Name, fallbacks, lookupName)
 			fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
 			fmt.Fprintf(&source, "\tconfig.%s = value%d\n", names[index], index)
 		}

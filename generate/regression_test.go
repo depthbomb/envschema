@@ -86,3 +86,55 @@ func TestEmpty(t *testing.T) {
 }
 `)
 }
+
+func TestGeneratedConstrainedValues(t *testing.T) {
+	schema := envschema.Must(
+		envschema.Var("LEFT", envschema.Array(envschema.Int())),
+		envschema.Var("RIGHT", envschema.Array(envschema.Int())),
+		envschema.Var("TEXT", envschema.String().Optional()).FallbackTo("OLD_TEXT"),
+		envschema.Var("PATTERN", envschema.Regexp().Optional()),
+		envschema.Var("LABELS", envschema.Map(envschema.String(), envschema.Int()).Optional()),
+		envschema.Var("LEVEL", envschema.CustomNamed("github.com/depthbomb/envschema/example/config/schema", "LogLevel").Optional()).FallbackTo("OLD_LEVEL"),
+	).EqualValues("LEFT", "RIGHT")
+	testGeneratedPackage(t, schema, `package config
+import "testing"
+func TestConstrainedValues(t *testing.T) {
+	values := map[string]string{
+		"LEFT": "[1,2]",
+		"RIGHT": "[1,2]",
+	}
+	lookup := func(name string) (string, bool) {
+		value, exists := values[name]
+
+		return value, exists
+	}
+	config, err := LoadFrom(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Text != nil || config.Pattern != nil || config.Labels != nil || config.Level != nil {
+		t.Fatalf("absent optionals gained values: %+v", config)
+	}
+	values["OLD_TEXT"] = "fallback"
+	values["OLD_LEVEL"] = "debug"
+	values["PATTERN"] = "^ok$"
+	values["LABELS"] = "workers=3"
+	config, err = LoadFrom(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *config.Text != "fallback" || *config.Level != "debug" || !config.Pattern.MatchString("ok") || (*config.Labels)["workers"] != 3 {
+		t.Fatalf("constrained conversion changed values: %+v", config)
+	}
+	values["RIGHT"] = "[2,3]"
+	if _, err := LoadFrom(lookup); err == nil {
+		t.Fatal("unequal arrays satisfied equality")
+	}
+	values["RIGHT"] = "[1,2]"
+	values["OLD_LEVEL"] = "invalid"
+	if _, err := LoadFrom(lookup); err == nil {
+		t.Fatal("custom validation was skipped")
+	}
+}
+`)
+}
