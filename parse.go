@@ -2665,7 +2665,10 @@ func validateExactNumberBounds(rule Rule, value *big.Rat, path string, descripti
 		if check.bound == nil {
 			continue
 		}
-		bound, _ := new(big.Rat).SetString(strconv.FormatFloat(*check.bound, 'g', -1, 64))
+		bound, ok := new(big.Rat).SetString(strconv.FormatFloat(*check.bound, 'g', -1, 64))
+		if !ok {
+			return fmt.Errorf("[%s] expected finite numeric bound", path)
+		}
 		comparison := value.Cmp(bound)
 		if check.minimum && (comparison < 0 || check.exclusive && comparison == 0) {
 			return fmt.Errorf("[%s] %s is below minimum", path, description)
@@ -2675,9 +2678,9 @@ func validateExactNumberBounds(rule Rule, value *big.Rat, path string, descripti
 		}
 	}
 	if rule.Multiple != nil {
-		multiple, _ := new(big.Rat).SetString(strconv.FormatFloat(*rule.Multiple, 'g', -1, 64))
-		if multiple.Sign() == 0 {
-			return fmt.Errorf("[%s] multiple must be non-zero", path)
+		multiple, ok := new(big.Rat).SetString(strconv.FormatFloat(*rule.Multiple, 'g', -1, 64))
+		if !ok || multiple.Sign() <= 0 {
+			return fmt.Errorf("[%s] multiple must be finite and positive", path)
 		}
 		quotient := new(big.Rat).Quo(value, multiple)
 		if !quotient.IsInt() {

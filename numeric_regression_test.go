@@ -97,3 +97,21 @@ func TestDecimalConstraintsUseDecimalBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRejectNonFiniteBounds(t *testing.T) {
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		for _, rule := range []Rule{Decimal().AtLeast(value), Decimal().AtMost(value), Decimal().GreaterThan(value), Decimal().LessThan(value), Decimal().MultipleOf(value)} {
+			if _, err := New(Var("VALUE", rule)); err == nil {
+				t.Errorf("schema accepted non-finite bound %v", value)
+			}
+			if _, err := parseRule(rule, "1", "VALUE"); err == nil {
+				t.Errorf("parser accepted non-finite bound %v", value)
+			}
+		}
+		for _, rule := range []Rule{Int().AtMost(value), Uint().AtLeast(value), Float().MultipleOf(value), BigInt().LessThan(value)} {
+			if _, err := New(Var("VALUE", rule)); err == nil {
+				t.Errorf("%s schema accepted non-finite bound", rule.Kind)
+			}
+		}
+	}
+}

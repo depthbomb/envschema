@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
 	"strings"
@@ -474,6 +475,12 @@ func validateRule(rule Rule, path string) error {
 		KindFileMode, KindULID, KindGlob:
 	default:
 		return fmt.Errorf("envschema: %s has unsupported rule kind %q", path, rule.Kind)
+	}
+
+	for _, bound := range []*float64{rule.Min, rule.Max, rule.ExclusiveMin, rule.ExclusiveMax, rule.Multiple} {
+		if bound != nil && (math.IsNaN(*bound) || math.IsInf(*bound, 0)) {
+			return fmt.Errorf("envschema: %s has a non-finite numeric bound or multiple", path)
+		}
 	}
 
 	if rule.Min != nil && rule.Max != nil && *rule.Min > *rule.Max {
