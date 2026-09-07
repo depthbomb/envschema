@@ -363,7 +363,11 @@ func parseInteger(rule Rule, raw any, path string) (any, error) {
 		}
 		value = int64(raw)
 	case json.Number:
-		return parseInteger(rule, raw.String(), path)
+		// A JSON number is already numeric; Base applies only to text input.
+		numericRule := rule
+		numericRule.Policies = nil
+
+		return parseInteger(numericRule, raw.String(), path)
 	case string:
 		trimmed := strings.TrimSpace(raw)
 		base, configured := policyInt(rule, policyBase)
@@ -2583,15 +2587,20 @@ func parseBigInt(rule Rule, raw any, path string) (any, error) {
 	var value string
 	switch raw := raw.(type) {
 	case json.Number:
-		value = raw.String()
+		exact, ok := new(big.Rat).SetString(raw.String())
+		if !ok || !exact.IsInt() {
+			return nil, fmt.Errorf("[%s] expected arbitrary-precision integer", path)
+		}
+
+		return validateBigInt(rule, *exact.Num(), path)
 	case string:
 		value = raw
 	case int:
-		value = strconv.Itoa(raw)
+		return validateBigInt(rule, *big.NewInt(int64(raw)), path)
 	case int64:
-		value = strconv.FormatInt(raw, 10)
+		return validateBigInt(rule, *big.NewInt(raw), path)
 	case uint64:
-		value = strconv.FormatUint(raw, 10)
+		return validateBigInt(rule, *new(big.Int).SetUint64(raw), path)
 	default:
 		return nil, fmt.Errorf("[%s] expected arbitrary-precision integer", path)
 	}

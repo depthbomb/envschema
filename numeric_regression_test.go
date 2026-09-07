@@ -3,6 +3,7 @@ package envschema
 import (
 	"encoding/json"
 	"math"
+	"math/big"
 	"testing"
 )
 
@@ -113,5 +114,25 @@ func TestRejectNonFiniteBounds(t *testing.T) {
 				t.Errorf("%s schema accepted non-finite bound", rule.Kind)
 			}
 		}
+	}
+}
+
+func TestBaseAppliesOnlyToTextInput(t *testing.T) {
+	for _, raw := range []any{int64(255), json.Number("255")} {
+		for _, rule := range []Rule{Int().Base(16), BigInt().Base(16)} {
+			value, err := parseRule(rule, raw, "VALUE")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if exact, ok := value.(big.Int); ok {
+				value = exact.Int64()
+			}
+			if value != int64(255) {
+				t.Errorf("numeric default changed radix: %v", value)
+			}
+		}
+	}
+	if value, err := parseRule(Int().Base(16), "255", "VALUE"); err != nil || value != int64(597) {
+		t.Fatalf("text input no longer uses base 16: %v, %v", value, err)
 	}
 }

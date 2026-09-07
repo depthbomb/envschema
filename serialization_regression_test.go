@@ -33,6 +33,9 @@ func TestNumericDefaultsSurviveSchemaJSON(t *testing.T) {
 		Bytes().DefaultTo(int64(math.MaxInt64)),
 		Duration().DefaultTo(int64(1000)),
 		BigInt().DefaultTo(int64(math.MaxInt64)),
+		Int().Base(16).DefaultTo(int64(255)),
+		Uint().Base(16).DefaultTo(uint64(255)),
+		BigInt().Base(16).DefaultTo(int64(255)),
 		Array(Uint()).DefaultTo([]uint64{9007199254740993, math.MaxUint64}),
 		Map(String(), Uint()).DefaultTo(map[string]uint64{
 			"limit": math.MaxUint64,
