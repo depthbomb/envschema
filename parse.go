@@ -2890,7 +2890,7 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 			values[variable.Name] = value
 		}
 	}
-	if err := evaluateConstraints(schema, lookup, values, invalid); err != nil {
+	if err := evaluateConstraints(schema, lookup, values, invalid, true); err != nil {
 		failures = append(failures, err)
 	}
 
@@ -2917,7 +2917,7 @@ func ValidateConstraints(schema Schema, lookup LookupFunc) error {
 			invalid[variable.Name] = true
 		}
 	}
-	if err := evaluateConstraints(schema, lookup, nil, invalid); err != nil {
+	if err := evaluateConstraints(schema, lookup, nil, invalid, false); err != nil {
 		failures = append(failures, err)
 	}
 
@@ -2925,23 +2925,24 @@ func ValidateConstraints(schema Schema, lookup LookupFunc) error {
 }
 
 func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error {
-	return evaluateConstraints(schema, lookup, parsed, nil)
+	return evaluateConstraints(schema, lookup, parsed, nil, false)
 }
 
-func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invalid map[string]bool) error {
+func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invalid map[string]bool, complete bool) error {
 	if len(schema.Constraints) == 0 {
 		return nil
 	}
 	var indexed map[string]*Variable
-	if len(schema.Variables) > 16 {
-		indexed = make(map[string]*Variable, len(schema.Variables))
-		for index := range schema.Variables {
-			variable := &schema.Variables[index]
-			indexed[variable.Name] = variable
-		}
-	}
 	variableFor := func(name string) *Variable {
-		if indexed != nil {
+		if len(schema.Variables) > 16 {
+			if indexed == nil {
+				indexed = make(map[string]*Variable, len(schema.Variables))
+				for index := range schema.Variables {
+					variable := &schema.Variables[index]
+					indexed[variable.Name] = variable
+				}
+			}
+
 			return indexed[name]
 		}
 		for index := range schema.Variables {
@@ -2970,9 +2971,19 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 
 		return value, exists && (value != "" || variable.Rule.EmptyAllowed)
 	}
+	isPresent := func(name string) bool {
+		if complete {
+			_, exists := parsed[name]
+
+			return exists
+		}
+		_, exists := read(name)
+
+		return exists
+	}
 	parsedValue := func(name string) (any, bool, error) {
-		if value, exists := parsed[name]; exists {
-			return value, true, nil
+		if value, exists := parsed[name]; exists || complete {
+			return value, exists, nil
 		}
 		variable := variableFor(name)
 		if variable == nil {
@@ -3001,11 +3012,14 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 	}
 	evaluate := func(constraint Constraint) error {
 		present := 0
-		for _, name := range constraint.Names {
-			if _, exists := read(name); exists {
-				present++
+		if !complete || constraint.Kind == ConstraintExactlyOne || constraint.Kind == ConstraintAtLeastOne || constraint.Kind == ConstraintMutuallyExclusive || constraint.Kind == ConstraintRequiredTogether {
+			for _, name := range constraint.Names {
+				if isPresent(name) {
+					present++
+				}
 			}
 		}
+
 		if sourceErr != nil {
 			return sourceErr
 		}
@@ -3056,7 +3070,7 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 			}
 			if matches {
 				for _, name := range constraint.Names[1:] {
-					if _, requiredExists := read(name); !requiredExists {
+					if !isPresent(name) {
 						return fmt.Errorf("envschema: %s is required when %s=%q", name, constraint.Names[0], constraint.Value)
 					}
 				}
@@ -3068,7 +3082,7 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 			}
 			if matches {
 				for _, name := range constraint.Names[1:] {
-					if _, forbiddenExists := read(name); forbiddenExists {
+					if isPresent(name) {
 						return fmt.Errorf("envschema: %s is forbidden when %s=%q", name, constraint.Names[0], constraint.Value)
 					}
 				}
@@ -3080,15 +3094,15 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 			}
 			if !matches {
 				for _, name := range constraint.Names[1:] {
-					if _, requiredExists := read(name); !requiredExists {
+					if !isPresent(name) {
 						return fmt.Errorf("envschema: %s is required unless %s=%q", name, constraint.Names[0], constraint.Value)
 					}
 				}
 			}
 		case ConstraintRequiredIfPresent:
-			if _, exists := read(constraint.Names[0]); exists {
+			if isPresent(constraint.Names[0]) {
 				for _, name := range constraint.Names[1:] {
-					if _, requiredExists := read(name); !requiredExists {
+					if !isPresent(name) {
 						return fmt.Errorf("envschema: %s is required when %s is present", name, constraint.Names[0])
 					}
 				}
