@@ -160,3 +160,15 @@ func TestObject(t *testing.T) {
 }
 `)
 }
+
+func TestGeneratedGroups(t *testing.T) {
+	fragment := envschema.Must(envschema.Var("PORT", envschema.Port().DefaultTo(8080)))
+	schema := envschema.Must().WithGroup("Primary", "PRIMARY_", fragment).WithGroup("Replica", "REPLICA_", fragment)
+	testGeneratedPackage(t, schema, `package config
+import "testing"
+func TestGroups(t *testing.T) {
+ config,err:=LoadFrom(func(string)(string,bool){return "",false})
+ if err!=nil || config.Primary.Port!=8080 || config.Replica.Port!=8080 {t.Fatalf("%v %v",config,err)}
+}
+`)
+}

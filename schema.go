@@ -4,12 +4,14 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"go/token"
 	"math"
 	"reflect"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Kind identifies the parser and generated Go type for a rule.
@@ -111,6 +113,7 @@ type Rule struct {
 
 // Variable associates an environment name and optional fallbacks with a rule.
 type Variable struct {
+	Groups      []string `json:"groups,omitempty"`
 	Deprecation string   `json:"deprecation,omitempty"`
 	Name        string   `json:"name"`
 	GoName      string   `json:"goName,omitempty"`
@@ -417,6 +420,11 @@ func (schema Schema) Validate() error {
 	seen := make(map[string]struct{}, len(schema.Variables))
 	rules := make(map[string]Rule, len(schema.Variables))
 	for _, variable := range schema.Variables {
+		for _, group := range variable.Groups {
+			if objectFieldName(ObjectField{GoName: group}) != group || !token.IsIdentifier(group) || !unicode.IsUpper([]rune(group)[0]) {
+				return fmt.Errorf("envschema: invalid group name %q", group)
+			}
+		}
 		if !envNamePattern.MatchString(variable.Name) {
 			return fmt.Errorf("envschema: invalid environment variable name %q", variable.Name)
 		}

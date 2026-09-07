@@ -605,6 +605,13 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 		for _, fallback := range variable.Fallbacks {
 			constructor += ".FallbackTo(" + strconv.Quote(fallback) + ")"
 		}
+		if len(variable.Groups) > 0 {
+			groups := make([]string, len(variable.Groups))
+			for i, group := range variable.Groups {
+				groups[i] = strconv.Quote(group)
+			}
+			constructor += ".InGroup(" + strings.Join(groups, ",") + ")"
+		}
 		if variable.Deprecation != "" {
 			constructor += ".Deprecated(" + strconv.Quote(variable.Deprecation) + ")"
 		}
@@ -803,6 +810,9 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		if !token.IsIdentifier(name) || !unicode.IsUpper([]rune(name)[0]) {
 			return nil, fmt.Errorf("generate: Go field name %q for %s is not exported", name, variable.Name)
 		}
+		if len(variable.Groups) > 0 {
+			name = strings.Join(variable.Groups, ".") + "." + name
+		}
 		if prior, ok := seenNames[name]; ok {
 			return nil, fmt.Errorf("generate: %s and %s both map to Go field %s", prior, variable.Name, name)
 		}
@@ -877,9 +887,15 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	source.WriteString(")\n\n")
 	fmt.Fprintf(&source, "var generatedSchema = %s\n\n", encodedSchema)
 	fmt.Fprintf(&source, "type %s struct {\n", options.Type)
+	var fields []*groupField
 	for index, variable := range schema.Variables {
-		fmt.Fprintf(&source, "\t%s %s `env:%s`\n", names[index], types[index], strconv.Quote(variable.Name))
+		if err := addGroupField(&fields, strings.Split(names[index], "."), types[index], strconv.Quote("env:"+strconv.Quote(variable.Name))); err != nil {
+			return nil, err
+		}
 	}
+	var fieldSource strings.Builder
+	writeGroupFields(&fieldSource, fields)
+	source.WriteString(fieldSource.String())
 	source.WriteString("}\n\n")
 	fmt.Fprintf(&source, "func LoadFrom(lookup envschema.LookupFunc) (%s, error) {\n", options.Type)
 	fmt.Fprintf(&source, "\tvar config %s\n", options.Type)

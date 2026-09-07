@@ -120,3 +120,22 @@ func TestCollectionRelationships(t *testing.T) {
 		}
 	}
 }
+
+func TestGroups(t *testing.T) {
+	fragment := envschema.Must(envschema.Var("MIN", envschema.Int()), envschema.Var("MAX", envschema.Int())).LessThanVariable("MIN", "MAX")
+	schema := envschema.Must().WithGroup("Primary", "PRIMARY_", fragment).WithGroup("Replica", "REPLICA_", fragment)
+	data, _ := json.Marshal(schema)
+	schema = envschema.MustSchemaJSON(string(data))
+	if len(fragment.Variables) != 2 || fragment.Variables[0].Name != "MIN" {
+		t.Fatal("fragment mutated")
+	}
+	_, err := envschema.LoadFrom(schema, func(name string) (string, bool) {
+		if name == "PRIMARY_MAX" || name == "REPLICA_MAX" {
+			return "2", true
+		}
+		return "1", true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
