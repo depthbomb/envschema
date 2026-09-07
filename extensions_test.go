@@ -159,3 +159,22 @@ func TestSensitiveComposition(t *testing.T) {
 	checkRule(t, envschema.List(envschema.String().Sensitive()).CaseInsensitiveUniqueItems().RejectEmptyItems().Sorted(), []string{"a,b"}, []string{"a,A", "b,a", "a,"})
 	checkRule(t, envschema.Array(envschema.Object(envschema.Field("token", envschema.String().Sensitive()))).UniqueItems(), []string{`[{"token":"a"},{"token":"b"}]`}, []string{`[{"token":"a"},{"token":"a"}]`})
 }
+
+func TestInvalidFeatureDeclarations(t *testing.T) {
+	rules := []envschema.Rule{
+		envschema.String().WithPrecision(3),
+		envschema.Decimal().WithScale(-1),
+		envschema.List(envschema.Int()).NonOverlapping(),
+		envschema.String().QueryParameter("a", envschema.String()),
+		envschema.Object(envschema.Field("a", envschema.String().FromFile("FILE", envschema.PreferFile))),
+		envschema.Array(envschema.String().ExplicitInput()),
+		envschema.URL().QueryParameter("x", envschema.Int().DefaultTo("bad")),
+		envschema.Object(envschema.Field("a-b", envschema.String()), envschema.Field("a_b", envschema.String())),
+	}
+	for _, rule := range rules {
+		if _, err := envschema.New(envschema.Var("VALUE", rule)); err == nil {
+			t.Errorf("accepted invalid %s rule", rule.Kind)
+		}
+	}
+	checkRule(t, envschema.URL().QueryParameter("x-a", envschema.Int()).QueryParameter("x_a", envschema.Int()), []string{"https://host?x-a=1&x_a=2"}, nil)
+}

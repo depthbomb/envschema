@@ -504,6 +504,15 @@ func (schema Schema) Validate() error {
 }
 
 func validateRule(rule Rule, path string) error {
+	if strings.ContainsAny(path, ".[{") {
+		if _, configured := policy(rule, "fileSource"); configured {
+			return fmt.Errorf("envschema: %s file sources require a top-level variable", path)
+		}
+		if _, configured := policy(rule, "explicitInput"); configured {
+			return fmt.Errorf("envschema: %s explicit input requires a top-level variable", path)
+		}
+	}
+
 	if err := validateQueryFields(rule, path); err != nil {
 		return err
 	}

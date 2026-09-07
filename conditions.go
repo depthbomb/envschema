@@ -8,6 +8,9 @@ func validateConditional(constraint Constraint, rules map[string]Rule) error {
 	if constraint.Rule == nil || len(constraint.Names) != 2 {
 		return fmt.Errorf("envschema: conditional validation requires a rule and two variables")
 	}
+	if _, configured := policy(*constraint.Rule, "fileSource"); configured {
+		return fmt.Errorf("envschema: conditional rules cannot override sources")
+	}
 	target := rules[constraint.Names[1]]
 	if constraint.Rule.Kind != target.Kind {
 		return fmt.Errorf("envschema: conditional rule must preserve the target kind")

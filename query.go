@@ -23,7 +23,26 @@ func validateQueryFields(rule Rule, path string) error {
 		return fmt.Errorf("envschema: %s query parameters require URL or URI", path)
 	}
 
-	return validateObjectFields(rule.QueryFields, path+" query")
+	seen := make(map[string]bool)
+	for _, field := range rule.QueryFields {
+		if field.Name == "" || seen[field.Name] {
+			return fmt.Errorf("envschema: duplicate or empty query parameter")
+		}
+		seen[field.Name] = true
+		if field.Rule.Kind == KindCustom {
+			return fmt.Errorf("envschema: query parameters do not support custom rules")
+		}
+		if err := validateRule(field.Rule, path+".query."+field.Name); err != nil {
+			return err
+		}
+		if field.Rule.HasDefault {
+			if _, err := parseRule(field.Rule, field.Rule.Default, path+".query."+field.Name); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func checkQueryFields(rule Rule, value any, path string) error {
