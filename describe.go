@@ -3,6 +3,7 @@ package envschema
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -11,10 +12,17 @@ func containsSecrets(rule Rule) bool {
 	if rule.Redact || rule.Kind == KindSecret || rule.Kind == KindPrivateKey {
 		return true
 	}
+
 	if rule.Item != nil && containsSecrets(*rule.Item) {
 		return true
 	}
 	for _, field := range rule.Fields {
+		if containsSecrets(field.Rule) {
+			return true
+		}
+	}
+
+	for _, field := range rule.QueryFields {
 		if containsSecrets(field.Rule) {
 			return true
 		}
@@ -46,6 +54,29 @@ func defaultText(rule Rule) string {
 	}
 }
 
+func quoteEnvText(value string) string {
+	replacer := strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "\n", "\\n", "\r", "\\r", "\t", "\\t")
+
+	return "\"" + replacer.Replace(value) + "\""
+}
+
+func exampleDefault(rule Rule) (string, bool) {
+	if !rule.HasDefault || containsSecrets(rule) {
+		return "", false
+	}
+	text := defaultText(rule)
+	candidate, err := parseRule(rule, text, "example")
+	if err != nil {
+		return "", false
+	}
+	expected, err := parseRule(rule, rule.Default, "default")
+	if err != nil {
+		return "", false
+	}
+
+	return text, reflect.DeepEqual(candidate, expected)
+}
+
 func markdownCell(text string) string {
 	text = strings.ReplaceAll(text, "|", "\\|")
 
@@ -74,9 +105,9 @@ func Example(schema Schema) (string, error) {
 		}
 		rule := variable.Rule
 		_, explicit := policy(rule, "explicitInput")
-		if rule.HasDefault && !containsSecrets(rule) && !explicit {
-			encoded, _ := json.Marshal(defaultText(rule))
-			fmt.Fprintf(&result, "%s=%s\n", variable.Name, encoded)
+		text, representable := exampleDefault(rule)
+		if rule.HasDefault && !containsSecrets(rule) && !explicit && representable {
+			fmt.Fprintf(&result, "%s=%s\n", variable.Name, quoteEnvText(text))
 		} else {
 			requirement := "optional"
 			if rule.Required || explicit {
@@ -84,6 +115,7 @@ func Example(schema Schema) (string, error) {
 			}
 			fmt.Fprintf(&result, "# %s=<%s %s>\n", variable.Name, requirement, rule.Kind)
 		}
+
 		if values, ok := policy(rule, "fileSource"); ok {
 			fmt.Fprintf(&result, "# %s=<file containing %s>\n", values[0], variable.Name)
 		}
