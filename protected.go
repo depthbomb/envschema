@@ -30,6 +30,39 @@ func (value Protected[T]) protectedValue() any {
 	return value.value
 }
 
+func identityValue(value any) any {
+	if protected, ok := value.(interface{ protectedValue() any }); ok {
+		return identityValue(protected.protectedValue())
+	}
+
+	if secret, ok := value.(SecretValue); ok {
+		return secret.Release()
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Slice, reflect.Array:
+		items := make([]any, reflected.Len())
+		for i := range items {
+			items[i] = identityValue(reflected.Index(i).Interface())
+		}
+
+		return items
+	case reflect.Map:
+		if reflected.Type().Key().Kind() != reflect.String {
+			return value
+		}
+		items := make(map[string]any, reflected.Len())
+		iterator := reflected.MapRange()
+		for iterator.Next() {
+			items[iterator.Key().String()] = identityValue(iterator.Value().Interface())
+		}
+
+		return items
+	}
+
+	return value
+}
+
 // Sensitive wraps this rule's parsed result in Protected and hides parser errors.
 func (rule Rule) Sensitive() Rule {
 	rule.Redact = true
@@ -59,36 +92,4 @@ func (value Protected[T]) MarshalJSON() ([]byte, error) {
 
 func (value Protected[T]) MarshalText() ([]byte, error) {
 	return []byte(redactedSecret), nil
-}
-
-func identityValue(value any) any {
-	if protected, ok := value.(interface{ protectedValue() any }); ok {
-		return identityValue(protected.protectedValue())
-	}
-	if secret, ok := value.(SecretValue); ok {
-		return secret.Release()
-	}
-	reflected := reflect.ValueOf(value)
-	switch reflected.Kind() {
-	case reflect.Slice, reflect.Array:
-		items := make([]any, reflected.Len())
-		for i := range items {
-			items[i] = identityValue(reflected.Index(i).Interface())
-		}
-
-		return items
-	case reflect.Map:
-		if reflected.Type().Key().Kind() != reflect.String {
-			return value
-		}
-		items := make(map[string]any, reflected.Len())
-		iterator := reflected.MapRange()
-		for iterator.Next() {
-			items[iterator.Key().String()] = identityValue(iterator.Value().Interface())
-		}
-
-		return items
-	}
-
-	return value
 }

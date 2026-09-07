@@ -27,7 +27,11 @@ func validationError(path, code string, err error) error {
 		return err
 	}
 
-	return &ValidationError{Code: code, Path: path, Cause: err}
+	return &ValidationError{
+		Code:  code,
+		Path:  path,
+		Cause: err,
+	}
 }
 
 func (issue *ValidationError) Error() string {
@@ -74,7 +78,10 @@ func JoinErrors(failures ...error) error {
 		} else if errors.As(err, &issue) {
 			result.Issues = append(result.Issues, issue)
 		} else {
-			result.Issues = append(result.Issues, &ValidationError{Code: "invalid", Cause: err})
+			result.Issues = append(result.Issues, &ValidationError{
+				Code:  "invalid",
+				Cause: err,
+			})
 		}
 	}
 	if len(result.Issues) == 0 {

@@ -18,8 +18,6 @@ type ObjectField struct {
 	Rule   Rule   `json:"rule"`
 }
 
-const KindObject Kind = "object"
-
 func objectFieldName(field ObjectField) string {
 	if field.GoName != "" {
 		return field.GoName
@@ -31,6 +29,7 @@ func objectFieldName(field ObjectField) string {
 			upper = true
 			continue
 		}
+
 		if upper {
 			r = unicode.ToUpper(r)
 			upper = false
@@ -54,9 +53,11 @@ func validateObjectFields(fields []ObjectField, path string) error {
 		if field.Rule.Kind == KindCustom {
 			return fmt.Errorf("envschema: object custom fields are not supported")
 		}
+
 		if err := validateRule(field.Rule, path+"."+field.Name); err != nil {
 			return err
 		}
+
 		if field.Rule.HasDefault {
 			if _, err := parseRule(field.Rule, field.Rule.Default, path+"."+field.Name); err != nil {
 				return err
@@ -152,6 +153,7 @@ func assignObject(target reflect.Value, source reflect.Value) error {
 		if !value.IsValid() {
 			continue
 		}
+
 		if err := assignValue(target.Field(i), value); err != nil {
 			return fmt.Errorf("field %s: %w", name, err)
 		}
@@ -160,9 +162,14 @@ func assignObject(target reflect.Value, source reflect.Value) error {
 	return nil
 }
 
+const KindObject Kind = "object"
+
 // Field defines a JSON object property.
 func Field(name string, rule Rule) ObjectField {
-	return ObjectField{Name: name, Rule: rule}
+	return ObjectField{
+		Name: name,
+		Rule: rule,
+	}
 }
 
 // Named sets the generated Go field name.

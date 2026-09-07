@@ -42,11 +42,10 @@ type layeredSource struct {
 
 type FileConflict string
 
-const (
-	FileConflictError FileConflict = "error"
-	PreferValue       FileConflict = "value"
-	PreferFile        FileConflict = "file"
-)
+type resolvedInput struct {
+	value   string
+	present bool
+}
 
 func readVariableSource(rule *Rule, name string, fallbacks []string, lookup LookupFunc) (string, bool, error) {
 	value, exists := lookup(name)
@@ -60,6 +59,7 @@ func readVariableSource(rule *Rule, name string, fallbacks []string, lookup Look
 	if !configured {
 		return value, exists, nil
 	}
+
 	if len(source) != 2 {
 		return "", false, fmt.Errorf("[%s] invalid file source", name)
 	}
@@ -67,9 +67,11 @@ func readVariableSource(rule *Rule, name string, fallbacks []string, lookup Look
 	if !fileExists {
 		return value, exists, nil
 	}
+
 	if exists && source[1] == string(FileConflictError) {
 		return "", false, fmt.Errorf("[%s] both value and file source are supplied", name)
 	}
+
 	if exists && source[1] == string(PreferValue) {
 		return value, true, nil
 	}
@@ -80,6 +82,57 @@ func readVariableSource(rule *Rule, name string, fallbacks []string, lookup Look
 
 	return string(contents), true, nil
 }
+
+func snapshotFiles(schema Schema, lookup LookupFunc) (Schema, LookupFunc, map[string]error) {
+	hasFiles := false
+	for _, variable := range schema.Variables {
+		if _, configured := policy(variable.Rule, "fileSource"); configured {
+			hasFiles = true
+			break
+		}
+	}
+	if !hasFiles {
+		return schema, lookup, nil
+	}
+	cached := make(map[string]resolvedInput, len(schema.Variables))
+	var failures map[string]error
+	schema.Variables = append([]Variable(nil), schema.Variables...)
+	for i, variable := range schema.Variables {
+
+		value, present, err := readVariableSource(&variable.Rule, variable.Name, variable.Fallbacks, lookup)
+		if err != nil {
+			if failures == nil {
+				failures = make(map[string]error)
+			}
+			failures[variable.Name] = validationError(variable.Name, "source", err)
+		}
+		cached[variable.Name] = resolvedInput{
+			value:   value,
+			present: present,
+		}
+		schema.Variables[i].Fallbacks = nil
+		schema.Variables[i].Rule = variable.Rule.WithPolicy("fileSource")
+		delete(schema.Variables[i].Rule.Policies, "fileSource")
+	}
+	if cached == nil {
+		return schema, lookup, nil
+	}
+	resolved := func(name string) (string, bool) {
+		if input, ok := cached[name]; ok {
+			return input.value, input.present
+		}
+
+		return lookup(name)
+	}
+
+	return schema, resolved, failures
+}
+
+const (
+	FileConflictError FileConflict = "error"
+	PreferValue       FileConflict = "value"
+	PreferFile        FileConflict = "file"
+)
 
 // FromFile allows a companion variable to supply a filename containing the value.
 // File contents are preserved exactly; use Trimmed where appropriate.
@@ -114,7 +167,9 @@ func (source layeredSource) Lookup(name string) (string, bool) {
 }
 
 func (source layeredSource) Names() []string {
-	return (MapSource{Values: source.values}).Names()
+	return (MapSource{
+		Values: source.values,
+	}).Names()
 }
 
 func (source layeredSource) Origin(name string) string {
@@ -131,17 +186,24 @@ func ProcessSource() Source {
 		}
 	}
 
-	return MapSource{Values: values, Label: "process"}
+	return MapSource{
+		Values: values,
+		Label:  "process",
+	}
 }
 
 // EnvFileSource reads .env then .env.local, with process values taking precedence.
 func EnvFileSource(directory string, process Source) (Source, error) {
-	result := layeredSource{values: make(map[string]string), origins: make(map[string]string)}
+	result := layeredSource{
+		values:  make(map[string]string),
+		origins: make(map[string]string),
+	}
 	for _, filename := range []string{".env", ".env.local"} {
 		contents, err := os.ReadFile(filepath.Join(directory, filename))
 		if os.IsNotExist(err) {
 			continue
 		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -169,10 +231,13 @@ func EnvFileSource(directory string, process Source) (Source, error) {
 // LoadWithReport parses a source and records origins, defaults, and fallback use.
 // Reports contain names and source labels, never input values or file contents.
 func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
-	report := LoadReport{Origins: make(map[string]ValueOrigin)}
+	report := LoadReport{
+		Origins: make(map[string]ValueOrigin),
+	}
 	if err := schema.Validate(); err != nil {
 		return nil, report, err
 	}
+
 	if source == nil {
 		return nil, report, fmt.Errorf("envschema: nil source")
 	}
@@ -191,11 +256,18 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 			selected = name
 			raw, present = source.Lookup(name)
 		}
-		origin := ValueOrigin{Name: selected, Source: source.Origin(selected)}
+		origin := ValueOrigin{
+			Name:   selected,
+			Source: source.Origin(selected),
+		}
 		if policyValues, configured := policy(variable.Rule, "fileSource"); configured && len(policyValues) == 2 {
 			_, filePresent := source.Lookup(policyValues[0])
 			if filePresent && (!present || policyValues[1] == string(PreferFile)) {
-				origin = ValueOrigin{Name: policyValues[0], Source: source.Origin(policyValues[0]), File: true}
+				origin = ValueOrigin{
+					Name:   policyValues[0],
+					Source: source.Origin(policyValues[0]),
+					File:   true,
+				}
 			}
 		}
 		var err error
@@ -205,6 +277,7 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 			failed[variable.Name] = true
 			continue
 		}
+
 		if present {
 			resolved[variable.Name] = raw
 		}
@@ -212,7 +285,10 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 		prepared.Variables[i].Rule = variable.Rule.WithPolicy("fileSource")
 		delete(prepared.Variables[i].Rule.Policies, "fileSource")
 		if (!present || raw == "" && !variable.Rule.EmptyAllowed) && variable.Rule.HasDefault {
-			origin = ValueOrigin{Source: "default", Default: true}
+			origin = ValueOrigin{
+				Source:  "default",
+				Default: true,
+			}
 		} else if !present {
 			continue
 		}
@@ -220,6 +296,7 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 		if !origin.Default && !origin.File && selected != variable.Name {
 			report.Notices = append(report.Notices, fmt.Sprintf("%s was supplied through fallback %s; migrate to %s", variable.Name, selected, variable.Name))
 		}
+
 		if variable.Deprecation != "" && !origin.Default {
 			report.Notices = append(report.Notices, fmt.Sprintf("%s is deprecated: %s", variable.Name, variable.Deprecation))
 		}
@@ -256,6 +333,7 @@ func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
 	if err != nil {
 		failures = append(failures, err)
 	}
+
 	if err := JoinErrors(failures...); err != nil {
 		return nil, report, err
 	}
@@ -277,6 +355,7 @@ func ValidateKnownVariables(schema Schema, source Source, prefixes ...string) er
 	if err := schema.Validate(); err != nil {
 		return err
 	}
+
 	if source == nil {
 		return fmt.Errorf("envschema: nil source")
 	}
@@ -318,51 +397,4 @@ func LoadSource(schema Schema, source Source, prefixes ...string) (Values, error
 	}
 
 	return LoadFrom(schema, source.Lookup)
-}
-
-type resolvedInput struct {
-	value   string
-	present bool
-}
-
-func snapshotFiles(schema Schema, lookup LookupFunc) (Schema, LookupFunc, map[string]error) {
-	hasFiles := false
-	for _, variable := range schema.Variables {
-		if _, configured := policy(variable.Rule, "fileSource"); configured {
-			hasFiles = true
-			break
-		}
-	}
-	if !hasFiles {
-		return schema, lookup, nil
-	}
-	cached := make(map[string]resolvedInput, len(schema.Variables))
-	var failures map[string]error
-	schema.Variables = append([]Variable(nil), schema.Variables...)
-	for i, variable := range schema.Variables {
-
-		value, present, err := readVariableSource(&variable.Rule, variable.Name, variable.Fallbacks, lookup)
-		if err != nil {
-			if failures == nil {
-				failures = make(map[string]error)
-			}
-			failures[variable.Name] = validationError(variable.Name, "source", err)
-		}
-		cached[variable.Name] = resolvedInput{value: value, present: present}
-		schema.Variables[i].Fallbacks = nil
-		schema.Variables[i].Rule = variable.Rule.WithPolicy("fileSource")
-		delete(schema.Variables[i].Rule.Policies, "fileSource")
-	}
-	if cached == nil {
-		return schema, lookup, nil
-	}
-	resolved := func(name string) (string, bool) {
-		if input, ok := cached[name]; ok {
-			return input.value, input.present
-		}
-
-		return lookup(name)
-	}
-
-	return schema, resolved, failures
 }

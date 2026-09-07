@@ -19,12 +19,15 @@ func validateExactPolicy(rule Rule, name string, values []string) (bool, error) 
 
 		return true, nil
 	}
+
 	if name != "exactMin" && name != "exactMax" && name != "exactMultiple" {
 		return false, nil
 	}
+
 	if rule.Kind != KindInt && rule.Kind != KindUInt && rule.Kind != KindBigInt && rule.Kind != KindDecimal && rule.Kind != KindBytes && rule.Kind != KindPort {
 		return true, fmt.Errorf("%s requires an exact numeric rule", name)
 	}
+
 	if len(values) != 1 {
 		return true, fmt.Errorf("%s requires one numeric value", name)
 	}
@@ -51,6 +54,7 @@ func checkExactPolicies(rule Rule, value any, path string) error {
 		if !configured {
 			continue
 		}
+
 		if _, err := validateExactPolicy(rule, name, values); err != nil {
 			return fmt.Errorf("[%s] %w", path, err)
 		}
@@ -59,9 +63,49 @@ func checkExactPolicies(rule Rule, value any, path string) error {
 		if !ok {
 			return fmt.Errorf("[%s] expected exact numeric value", path)
 		}
+
 		if name == "exactMin" && number.Cmp(bound) < 0 || name == "exactMax" && number.Cmp(bound) > 0 || name == "exactMultiple" && !new(big.Rat).Quo(number, bound).IsInt() {
 			return fmt.Errorf("[%s] %s constraint failed", path, name)
 		}
+	}
+
+	return nil
+}
+
+func checkDecimalShape(rule Rule, value any, path string) error {
+	precision, hasPrecision := policyInt(rule, "decimalPrecision")
+	scale, hasScale := policyInt(rule, "decimalScale")
+	if !hasPrecision && !hasScale {
+		return nil
+	}
+	number, ok := value.(big.Rat)
+	if !ok {
+		return fmt.Errorf("[%s] expected decimal", path)
+	}
+	denominator := new(big.Int).Set(number.Denom())
+	counts := [2]int{}
+	for i, factor := range []int64{2, 5} {
+		divisor := big.NewInt(factor)
+		for new(big.Int).Mod(denominator, divisor).Sign() == 0 {
+			denominator.Quo(denominator, divisor)
+			counts[i]++
+		}
+	}
+	if denominator.Cmp(big.NewInt(1)) != 0 {
+		return fmt.Errorf("[%s] expected terminating decimal", path)
+	}
+	fractional := max(counts[0], counts[1])
+	if hasScale && fractional > scale {
+		return fmt.Errorf("[%s] decimal scale exceeds %d", path, scale)
+	}
+	text := number.FloatString(fractional)
+	digits := strings.TrimLeft(strings.ReplaceAll(strings.TrimPrefix(text, "-"), ".", ""), "0")
+	if digits == "" {
+		digits = "0"
+	}
+
+	if hasPrecision && len(digits) > precision {
+		return fmt.Errorf("[%s] decimal precision exceeds %d", path, precision)
 	}
 
 	return nil
@@ -112,42 +156,4 @@ func (rule Rule) WithPrecision(digits int) Rule {
 // Non-terminating rational values fail a precision or scale constraint.
 func (rule Rule) WithScale(digits int) Rule {
 	return rule.WithPolicy("decimalScale", strconv.Itoa(digits))
-}
-
-func checkDecimalShape(rule Rule, value any, path string) error {
-	precision, hasPrecision := policyInt(rule, "decimalPrecision")
-	scale, hasScale := policyInt(rule, "decimalScale")
-	if !hasPrecision && !hasScale {
-		return nil
-	}
-	number, ok := value.(big.Rat)
-	if !ok {
-		return fmt.Errorf("[%s] expected decimal", path)
-	}
-	denominator := new(big.Int).Set(number.Denom())
-	counts := [2]int{}
-	for i, factor := range []int64{2, 5} {
-		divisor := big.NewInt(factor)
-		for new(big.Int).Mod(denominator, divisor).Sign() == 0 {
-			denominator.Quo(denominator, divisor)
-			counts[i]++
-		}
-	}
-	if denominator.Cmp(big.NewInt(1)) != 0 {
-		return fmt.Errorf("[%s] expected terminating decimal", path)
-	}
-	fractional := max(counts[0], counts[1])
-	if hasScale && fractional > scale {
-		return fmt.Errorf("[%s] decimal scale exceeds %d", path, scale)
-	}
-	text := number.FloatString(fractional)
-	digits := strings.TrimLeft(strings.ReplaceAll(strings.TrimPrefix(text, "-"), ".", ""), "0")
-	if digits == "" {
-		digits = "0"
-	}
-	if hasPrecision && len(digits) > precision {
-		return fmt.Errorf("[%s] decimal precision exceeds %d", path, precision)
-	}
-
-	return nil
 }

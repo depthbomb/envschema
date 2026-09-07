@@ -5,12 +5,6 @@ import (
 	"reflect"
 )
 
-const (
-	ConstraintMemberOf ConstraintKind = "memberOf"
-	ConstraintSubsetOf ConstraintKind = "subsetOf"
-	ConstraintDisjoint ConstraintKind = "disjoint"
-)
-
 func collectionRule(rule Rule) *Rule {
 	if rule.Redact {
 		rule.Redact = false
@@ -65,6 +59,7 @@ func relationshipEqual(left, right any) bool {
 	if value, ok := left.(interface{ protectedValue() any }); ok {
 		left = value.protectedValue()
 	}
+
 	if value, ok := right.(interface{ protectedValue() any }); ok {
 		right = value.protectedValue()
 	}
@@ -93,6 +88,12 @@ func checkRelationship(kind ConstraintKind, left, right any) bool {
 
 	return true
 }
+
+const (
+	ConstraintMemberOf ConstraintKind = "memberOf"
+	ConstraintSubsetOf ConstraintKind = "subsetOf"
+	ConstraintDisjoint ConstraintKind = "disjoint"
+)
 
 // MemberOf requires a scalar to belong to a list, array, or map's keys.
 // Like other value contracts, relationships apply when both variables are present.

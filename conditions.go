@@ -2,12 +2,11 @@ package envschema
 
 import "fmt"
 
-const ConstraintValidateWhen ConstraintKind = "validateWhen"
-
 func validateConditional(constraint Constraint, rules map[string]Rule) error {
 	if constraint.Rule == nil || len(constraint.Names) != 2 {
 		return fmt.Errorf("envschema: conditional validation requires a rule and two variables")
 	}
+
 	if _, configured := policy(*constraint.Rule, "fileSource"); configured {
 		return fmt.Errorf("envschema: conditional rules cannot override sources")
 	}
@@ -15,12 +14,15 @@ func validateConditional(constraint Constraint, rules map[string]Rule) error {
 	if constraint.Rule.Kind != target.Kind {
 		return fmt.Errorf("envschema: conditional rule must preserve the target kind")
 	}
+
 	if err := validateRule(*constraint.Rule, constraint.Names[1]+" condition"); err != nil {
 		return err
 	}
+
 	if constraint.Rule.HasDefault {
 		return fmt.Errorf("envschema: conditional rules cannot define defaults")
 	}
+
 	if _, err := parseRule(rules[constraint.Names[0]], constraint.Value, constraint.Names[0]+" condition"); err != nil {
 		return err
 	}
@@ -41,6 +43,8 @@ func validateConditionalTarget(constraint Constraint, variable Variable, lookup 
 
 	return err
 }
+
+const ConstraintValidateWhen ConstraintKind = "validateWhen"
 
 // ValidateWhen applies an additional rule when the condition's parsed value matches.
 // The target retains its base parsed result. The additional rule must have the same kind.

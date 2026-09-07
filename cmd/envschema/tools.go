@@ -13,7 +13,10 @@ import (
 )
 
 func checkPackage(loaded generate.LoadedSchema, directory, prefix string, output io.Writer) error {
-	generated, err := generate.Source(loaded.Schema, generate.Options{Package: "main", Type: "Config"})
+	generated, err := generate.Source(loaded.Schema, generate.Options{
+		Package: "main",
+		Type:    "Config",
+	})
 	if err != nil {
 		return err
 	}
@@ -32,6 +35,7 @@ func checkPackage(loaded generate.LoadedSchema, directory, prefix string, output
 	if err := os.WriteFile(configFile, generated, 0600); err != nil {
 		return err
 	}
+
 	if err := os.WriteFile(mainFile, []byte(mainSource), 0600); err != nil {
 		return err
 	}
@@ -53,6 +57,7 @@ func runTool(arguments []string, output, stderr io.Writer) error {
 	if err := flags.Parse(arguments[1:]); err != nil {
 		return err
 	}
+
 	if flags.NArg() != 1 {
 		return fmt.Errorf("expected exactly one schema package")
 	}

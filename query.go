@@ -5,20 +5,11 @@ import (
 	"net/url"
 )
 
-// QueryParameter validates a URL query parameter with an existing rule.
-// Scalar parameters must occur once; Array rules validate repeated occurrences.
-// Required, optional, and default behavior follows the parameter rule.
-// Validation does not rewrite the returned URL or inject default query values.
-func (rule Rule) QueryParameter(name string, parameter Rule) Rule {
-	rule.QueryFields = append(append([]ObjectField(nil), rule.QueryFields...), Field(name, parameter))
-
-	return rule
-}
-
 func validateQueryFields(rule Rule, path string) error {
 	if len(rule.QueryFields) == 0 {
 		return nil
 	}
+
 	if rule.Kind != KindURL && rule.Kind != KindURI {
 		return fmt.Errorf("envschema: %s query parameters require URL or URI", path)
 	}
@@ -32,9 +23,11 @@ func validateQueryFields(rule Rule, path string) error {
 		if field.Rule.Kind == KindCustom {
 			return fmt.Errorf("envschema: query parameters do not support custom rules")
 		}
+
 		if err := validateRule(field.Rule, path+".query."+field.Name); err != nil {
 			return err
 		}
+
 		if field.Rule.HasDefault {
 			if _, err := parseRule(field.Rule, field.Rule.Default, path+".query."+field.Name); err != nil {
 				return err
@@ -80,10 +73,21 @@ func checkQueryFields(rule Rule, value any, path string) error {
 			}
 			raw = values[0]
 		}
+
 		if _, err := parseRule(field.Rule, raw, path+".query."+field.Name); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// QueryParameter validates a URL query parameter with an existing rule.
+// Scalar parameters must occur once; Array rules validate repeated occurrences.
+// Required, optional, and default behavior follows the parameter rule.
+// Validation does not rewrite the returned URL or inject default query values.
+func (rule Rule) QueryParameter(name string, parameter Rule) Rule {
+	rule.QueryFields = append(append([]ObjectField(nil), rule.QueryFields...), Field(name, parameter))
+
+	return rule
 }

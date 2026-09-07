@@ -102,6 +102,7 @@ func TestConditionalValidation(t *testing.T) {
 				if name == "MODE" {
 					return mode, true
 				}
+
 				return "http://host", true
 			})
 			if (err != nil) != (mode == "PRODUCTION") {
@@ -114,8 +115,15 @@ func TestConditionalValidation(t *testing.T) {
 func TestCollectionRelationships(t *testing.T) {
 	schema := envschema.Must(envschema.Var("DEFAULT", envschema.String()), envschema.Var("ENABLED", envschema.List(envschema.String())), envschema.Var("BLOCKED", envschema.Map(envschema.String(), envschema.Int()))).MemberOf("DEFAULT", "ENABLED").DisjointWith("ENABLED", "BLOCKED")
 	for _, enabled := range []string{"a,b", "b,c", "a,c"} {
-		values := map[string]string{"DEFAULT": "a", "ENABLED": enabled, "BLOCKED": "c=1"}
-		_, err := envschema.LoadFrom(schema, func(name string) (string, bool) { value, ok := values[name]; return value, ok })
+		values := map[string]string{
+			"DEFAULT": "a",
+			"ENABLED": enabled,
+			"BLOCKED": "c=1",
+		}
+		_, err := envschema.LoadFrom(schema, func(name string) (string, bool) {
+			value, ok := values[name]
+			return value, ok
+		})
 		if (err == nil) != (enabled == "a,b") {
 			t.Fatalf("%s: %v", enabled, err)
 		}
@@ -134,6 +142,7 @@ func TestGroups(t *testing.T) {
 		if name == "PRIMARY_MAX" || name == "REPLICA_MAX" {
 			return "2", true
 		}
+
 		return "1", true
 	})
 	if err != nil {
@@ -147,6 +156,7 @@ func TestAggregatedErrors(t *testing.T) {
 		if name == "PORT" {
 			return "bad", true
 		}
+
 		return `[{"timeout":"bad"},{"timeout":"also bad"}]`, true
 	})
 	var failures *envschema.ValidationErrors

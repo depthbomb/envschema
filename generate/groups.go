@@ -17,17 +17,21 @@ func addGroupField(fields *[]*groupField, path []string, goType, tag string) err
 		if field.name != path[0] {
 			continue
 		}
+
 		if len(path) == 1 || field.goType != "" {
 			return fmt.Errorf("generate: group and field collision at %s", path[0])
 		}
 
 		return addGroupField(&field.children, path[1:], goType, tag)
 	}
-	field := &groupField{name: path[0]}
+	field := &groupField{
+		name: path[0],
+	}
 	*fields = append(*fields, field)
 	if len(path) == 1 {
 		field.goType = goType
 		field.tag = tag
+
 		return nil
 	}
 
