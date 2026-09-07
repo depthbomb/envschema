@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,44 @@ func BenchmarkConstraints(b *testing.B) {
 			lookup := func(string) (string, bool) {
 				return "x", true
 			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, err := envschema.LoadFrom(schema, lookup); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkTextLoadFrom(b *testing.B) {
+	for _, size := range []int{64, 4096} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			schema := envschema.Must(envschema.Var("TEXT", envschema.String()))
+			raw := strings.Repeat("a", size)
+			lookup := func(string) (string, bool) { return raw, true }
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, err := envschema.LoadFrom(schema, lookup); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkCollectionRelationships(b *testing.B) {
+	for _, size := range []int{10, 100, 1000} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			items := make([]string, size)
+			for i := range items {
+				items[i] = fmt.Sprintf("region-%04d", i)
+			}
+			raw := strings.Join(items, ",")
+			schema := envschema.Must(envschema.Var("LEFT", envschema.List(envschema.String())), envschema.Var("RIGHT", envschema.List(envschema.String()))).SubsetOf("LEFT", "RIGHT")
+			lookup := func(string) (string, bool) { return raw, true }
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {

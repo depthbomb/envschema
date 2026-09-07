@@ -74,13 +74,13 @@ func lookupOS(name string) (string, bool) {
 	return os.LookupEnv(name)
 }
 
-func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc) (any, bool, error) {
-	rawValue, exists, sourceErr := readVariableSource(&rule, name, fallbacks, lookup)
+func parseVariable(rule *Rule, name string, fallbacks []string, lookup LookupFunc) (any, bool, error) {
+	rawValue, exists, sourceErr := readVariableSource(rule, name, fallbacks, lookup)
 	if sourceErr != nil {
 		return nil, false, validationError(name, "source", sourceErr)
 	}
 
-	if _, explicit := policy(rule, "explicitInput"); explicit && (!exists || rawValue == "" && !rule.EmptyAllowed) {
+	if _, explicit := policy(*rule, "explicitInput"); explicit && (!exists || rawValue == "" && !rule.EmptyAllowed) {
 		return nil, false, validationError(name, "explicit_input", fmt.Errorf("[%s] explicit input is required", name))
 	}
 
@@ -96,7 +96,7 @@ func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc
 		raw = rule.Default
 	}
 
-	value, err := parseRule(rule, raw, name)
+	value, err := parseRule(*rule, raw, name)
 	if err != nil {
 		return nil, false, err
 	}
@@ -292,17 +292,20 @@ func parseString(rule Rule, raw any, path string) (any, error) {
 	if rule.Suffix != "" && !strings.HasSuffix(value, rule.Suffix) {
 		return nil, fmt.Errorf("[%s] expected suffix %q", path, rule.Suffix)
 	}
-	for _, character := range value {
-		if rule.ASCII && character > 127 {
-			return nil, fmt.Errorf("[%s] expected ASCII text", path)
-		}
-		if rule.Printable && !unicode.IsPrint(character) {
-			return nil, fmt.Errorf("[%s] expected printable text", path)
-		}
-		if rule.NoWhitespace && unicode.IsSpace(character) {
-			return nil, fmt.Errorf("[%s] expected text without whitespace", path)
+	if rule.ASCII || rule.Printable || rule.NoWhitespace {
+		for _, character := range value {
+			if rule.ASCII && character > 127 {
+				return nil, fmt.Errorf("[%s] expected ASCII text", path)
+			}
+			if rule.Printable && !unicode.IsPrint(character) {
+				return nil, fmt.Errorf("[%s] expected printable text", path)
+			}
+			if rule.NoWhitespace && unicode.IsSpace(character) {
+				return nil, fmt.Errorf("[%s] expected text without whitespace", path)
+			}
 		}
 	}
+
 	if rule.Lowercase && strings.ToLower(value) != value {
 		return nil, fmt.Errorf("[%s] expected lowercase text", path)
 	}
@@ -341,6 +344,10 @@ func parseString(rule Rule, raw any, path string) (any, error) {
 				return nil, fmt.Errorf("[%s] expected text without %q", path, fragment)
 			}
 		}
+	}
+
+	if !rule.Trim || len(value) == len(raw.(string)) {
+		return raw, nil
 	}
 
 	return value, nil
@@ -2868,7 +2875,8 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 	values := make(Values, len(schema.Variables))
 	var failures []error
 	var invalid map[string]bool
-	for _, variable := range schema.Variables {
+	for index := range schema.Variables {
+		variable := &schema.Variables[index]
 		if err := sourceFailures[variable.Name]; err != nil {
 			failures = append(failures, err)
 			if invalid == nil {
@@ -2877,7 +2885,7 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 			invalid[variable.Name] = true
 			continue
 		}
-		value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
+		value, present, err := parseVariable(&variable.Rule, variable.Name, variable.Fallbacks, lookup)
 		if err != nil {
 			failures = append(failures, err)
 			if invalid == nil {
@@ -2989,7 +2997,7 @@ func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invali
 		if variable == nil {
 			return nil, false, fmt.Errorf("unknown variable %q", name)
 		}
-		value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
+		value, present, err := parseVariable(&variable.Rule, variable.Name, variable.Fallbacks, lookup)
 		if err == nil && present && parsed != nil {
 			parsed[name] = value
 		}
@@ -3342,7 +3350,7 @@ func Read[T any](rule Rule, name string, lookup LookupFunc) (T, bool, error) {
 // ReadWithFallbacks parses one named value as T, consulting fallbacks in order.
 func ReadWithFallbacks[T any](rule Rule, name string, fallbacks []string, lookup LookupFunc) (T, bool, error) {
 	var result T
-	value, present, err := parseVariable(rule, name, fallbacks, lookup)
+	value, present, err := parseVariable(&rule, name, fallbacks, lookup)
 	if err != nil || !present {
 		return result, present, err
 	}
@@ -3366,7 +3374,7 @@ func ReadText[T any](rule Rule, name string, lookup LookupFunc) (T, bool, error)
 // ReadTextWithFallbacks parses one custom value after consulting fallbacks.
 func ReadTextWithFallbacks[T any](rule Rule, name string, fallbacks []string, lookup LookupFunc) (T, bool, error) {
 	var result T
-	value, present, err := parseVariable(rule, name, fallbacks, lookup)
+	value, present, err := parseVariable(&rule, name, fallbacks, lookup)
 	if err != nil || !present {
 		return result, present, err
 	}

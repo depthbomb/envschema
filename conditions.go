@@ -39,7 +39,7 @@ func validateConditionalTarget(constraint Constraint, variable Variable, lookup 
 	if values, ok := policy(variable.Rule, "fileSource"); ok {
 		additional = additional.WithPolicy("fileSource", values...)
 	}
-	_, _, err := parseVariable(additional, variable.Name, variable.Fallbacks, lookup)
+	_, _, err := parseVariable(&additional, variable.Name, variable.Fallbacks, lookup)
 
 	return err
 }

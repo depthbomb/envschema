@@ -85,7 +85,8 @@ func readVariableSource(rule *Rule, name string, fallbacks []string, lookup Look
 
 func snapshotFiles(schema Schema, lookup LookupFunc) (Schema, LookupFunc, map[string]error) {
 	hasFiles := false
-	for _, variable := range schema.Variables {
+	for index := range schema.Variables {
+		variable := &schema.Variables[index]
 		if _, configured := policy(variable.Rule, "fileSource"); configured {
 			hasFiles = true
 			break
