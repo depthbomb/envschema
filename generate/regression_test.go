@@ -236,3 +236,17 @@ func TestComposition(t *testing.T) {
 `)
 	}
 }
+
+func TestGeneratedSensitiveCustom(t *testing.T) {
+	schema := envschema.Must(envschema.Var("LEVEL", envschema.CustomNamed("github.com/depthbomb/envschema/example/config/schema", "LogLevel").Sensitive()))
+	testGeneratedPackage(t, schema, `package config
+import ("testing";"strings";"github.com/depthbomb/envschema")
+func TestCustom(t *testing.T) {
+ input:=envschema.MapSource{Values:map[string]string{"LEVEL":"info"}}
+ config,_,err:=LoadWithReport(input)
+ if err!=nil || string(config.Level.Release())!="info"{t.Fatalf("%v %v",config,err)}
+ input.Values["LEVEL"]="private-invalid-value"
+ if _,err:=LoadFrom(input.Lookup);err==nil || strings.Contains(err.Error(),"private-invalid-value"){t.Fatalf("unsafe error: %v",err)}
+}
+`)
+}

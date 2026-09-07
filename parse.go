@@ -3360,7 +3360,12 @@ func ReadTextWithFallbacks[T any](rule Rule, name string, fallbacks []string, lo
 	if !ok {
 		return result, false, fmt.Errorf("environment variable %q: %T does not implement encoding.TextUnmarshaler", name, &result)
 	}
-	if err := unmarshaler.UnmarshalText([]byte(value.(string))); err != nil {
+	text, stringValue := value.(string)
+	if !stringValue {
+		return result, false, validationError(name, "invalid", fmt.Errorf("environment variable %q requires a compatible protected reader", name))
+	}
+
+	if err := unmarshaler.UnmarshalText([]byte(text)); err != nil {
 		return result, false, validationError(name, "invalid", fmt.Errorf("environment variable %q: %w", name, err))
 	}
 
