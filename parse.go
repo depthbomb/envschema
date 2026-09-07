@@ -2903,7 +2903,25 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 
 // ValidateConstraints evaluates a schema's cross-variable constraints.
 func ValidateConstraints(schema Schema, lookup LookupFunc) error {
-	return validateConstraints(schema, lookup, nil)
+	if !schema.validated {
+		if err := schema.Validate(); err != nil {
+			return err
+		}
+	}
+	schema, lookup, sourceFailures := snapshotFiles(schema, lookup)
+	var failures []error
+	invalid := make(map[string]bool)
+	for _, variable := range schema.Variables {
+		if err := sourceFailures[variable.Name]; err != nil {
+			failures = append(failures, err)
+			invalid[variable.Name] = true
+		}
+	}
+	if err := evaluateConstraints(schema, lookup, nil, invalid); err != nil {
+		failures = append(failures, err)
+	}
+
+	return JoinErrors(failures...)
 }
 
 func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error {
