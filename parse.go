@@ -804,24 +804,26 @@ func validateJSONPolicies(rule Rule, encoded []byte, path string) error {
 	}
 
 	if kinds, configured := policy(rule, policyJSONKind); configured {
-		valid := false
-		switch kinds[0] {
-		case "object":
-			_, valid = value.(map[string]any)
-		case "array":
-			_, valid = value.([]any)
-		case "scalar":
-			switch value.(type) {
-			case map[string]any, []any:
-			default:
-				valid = true
+		for _, kind := range kinds {
+			valid := false
+			switch kind {
+			case "object":
+				_, valid = value.(map[string]any)
+			case "array":
+				_, valid = value.([]any)
+			case "scalar":
+				switch value.(type) {
+				case map[string]any, []any:
+				default:
+					valid = true
+				}
+			case "nonNull":
+				valid = value != nil
 			}
-		case "nonNull":
-			valid = value != nil
-		}
 
-		if !valid {
-			return fmt.Errorf("[%s] expected JSON kind %s", path, kinds[0])
+			if !valid {
+				return fmt.Errorf("[%s] expected JSON kind %s", path, kind)
+			}
 		}
 	}
 	if maximum, configured := policyInt(rule, policyJSONDepth); configured && jsonValueDepth(value) > maximum {

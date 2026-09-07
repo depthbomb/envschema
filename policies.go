@@ -95,6 +95,15 @@ const (
 	policyWithin               = "path.within"
 )
 
+func (rule Rule) withAdditionalPolicy(name string, value string) Rule {
+	values := append([]string(nil), rule.Policies[name]...)
+	if !slices.Contains(values, value) {
+		values = append(values, value)
+	}
+
+	return rule.WithPolicy(name, values...)
+}
+
 // WithPolicy returns a copy of the rule with the corresponding validation setting applied.
 func (rule Rule) WithPolicy(name string, values ...string) Rule {
 	policies := make(map[string][]string, len(rule.Policies)+1)
@@ -152,16 +161,16 @@ func (rule Rule) FalseValues(values ...string) Rule {
 }
 
 // ObjectOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) ObjectOnly() Rule { return rule.WithPolicy(policyJSONKind, "object") }
+func (rule Rule) ObjectOnly() Rule { return rule.withAdditionalPolicy(policyJSONKind, "object") }
 
 // ArrayOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) ArrayOnly() Rule { return rule.WithPolicy(policyJSONKind, "array") }
+func (rule Rule) ArrayOnly() Rule { return rule.withAdditionalPolicy(policyJSONKind, "array") }
 
 // ScalarOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) ScalarOnly() Rule { return rule.WithPolicy(policyJSONKind, "scalar") }
+func (rule Rule) ScalarOnly() Rule { return rule.withAdditionalPolicy(policyJSONKind, "scalar") }
 
 // WithoutNull returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) WithoutNull() Rule { return rule.WithPolicy(policyJSONKind, "nonNull") }
+func (rule Rule) WithoutNull() Rule { return rule.withAdditionalPolicy(policyJSONKind, "nonNull") }
 
 // RequiredKeys returns a copy of the rule with the corresponding validation setting applied.
 func (rule Rule) RequiredKeys(values ...string) Rule {
@@ -318,31 +327,39 @@ func (rule Rule) WithDomainSuffix(value string) Rule { return rule.WithPolicy(po
 func (rule Rule) AllowIPAddress() Rule { return rule.WithPolicy(policyAllowIPAddress) }
 
 // PrivateOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) PrivateOnly() Rule { return rule.WithPolicy(policyIPClass, "private") }
+func (rule Rule) PrivateOnly() Rule { return rule.withAdditionalPolicy(policyIPClass, "private") }
 
 // PublicOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) PublicOnly() Rule { return rule.WithPolicy(policyIPClass, "public") }
+func (rule Rule) PublicOnly() Rule { return rule.withAdditionalPolicy(policyIPClass, "public") }
 
 // LoopbackOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) LoopbackOnly() Rule { return rule.WithPolicy(policyIPClass, "loopback") }
+func (rule Rule) LoopbackOnly() Rule { return rule.withAdditionalPolicy(policyIPClass, "loopback") }
 
 // WithoutLoopback returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) WithoutLoopback() Rule { return rule.WithPolicy(policyIPClass, "notLoopback") }
+func (rule Rule) WithoutLoopback() Rule {
+	return rule.withAdditionalPolicy(policyIPClass, "notLoopback")
+}
 
 // WithoutUnspecified returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) WithoutUnspecified() Rule { return rule.WithPolicy(policyIPClass, "notUnspecified") }
+func (rule Rule) WithoutUnspecified() Rule {
+	return rule.withAdditionalPolicy(policyIPClass, "notUnspecified")
+}
 
 // MulticastOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) MulticastOnly() Rule { return rule.WithPolicy(policyIPClass, "multicast") }
+func (rule Rule) MulticastOnly() Rule { return rule.withAdditionalPolicy(policyIPClass, "multicast") }
 
 // WithoutMulticast returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) WithoutMulticast() Rule { return rule.WithPolicy(policyIPClass, "notMulticast") }
+func (rule Rule) WithoutMulticast() Rule {
+	return rule.withAdditionalPolicy(policyIPClass, "notMulticast")
+}
 
 // LinkLocalOnly returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) LinkLocalOnly() Rule { return rule.WithPolicy(policyIPClass, "linkLocal") }
+func (rule Rule) LinkLocalOnly() Rule { return rule.withAdditionalPolicy(policyIPClass, "linkLocal") }
 
 // WithoutLinkLocal returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) WithoutLinkLocal() Rule { return rule.WithPolicy(policyIPClass, "notLinkLocal") }
+func (rule Rule) WithoutLinkLocal() Rule {
+	return rule.withAdditionalPolicy(policyIPClass, "notLinkLocal")
+}
 
 // PrefixLengthBetween returns a copy of the rule with the corresponding validation setting applied.
 func (rule Rule) PrefixLengthBetween(minimum int, maximum int) Rule {
@@ -521,10 +538,14 @@ func (rule Rule) AtLeastRSABits(value int) Rule {
 func (rule Rule) PKCS8Only() Rule { return rule.WithPolicy(policyPKCS8) }
 
 // ServerAuth returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) ServerAuth() Rule { return rule.WithPolicy(policyCertificateUsage, "server") }
+func (rule Rule) ServerAuth() Rule {
+	return rule.withAdditionalPolicy(policyCertificateUsage, "server")
+}
 
 // ClientAuth returns a copy of the rule with the corresponding validation setting applied.
-func (rule Rule) ClientAuth() Rule { return rule.WithPolicy(policyCertificateUsage, "client") }
+func (rule Rule) ClientAuth() Rule {
+	return rule.withAdditionalPolicy(policyCertificateUsage, "client")
+}
 
 // RequireMediaTypeParameters returns a copy of the rule with the corresponding validation setting applied.
 func (rule Rule) RequireMediaTypeParameters() Rule {
@@ -739,16 +760,20 @@ func validatePolicyValues(name string, values []string) error {
 			return fmt.Errorf("bounds exceed the supported range")
 		}
 	case policyIPClass:
-		if !oneOf(values[0], "private", "public", "loopback", "notLoopback", "notUnspecified", "multicast", "notMulticast", "linkLocal", "notLinkLocal") {
-			return fmt.Errorf("unsupported address class %q", values[0])
+		for _, value := range values {
+			if !oneOf(value, "private", "public", "loopback", "notLoopback", "notUnspecified", "multicast", "notMulticast", "linkLocal", "notLinkLocal") {
+				return fmt.Errorf("unsupported address class %q", value)
+			}
 		}
 	case policyEndpointHostType:
 		if !oneOf(values[0], "ip", "hostname") {
 			return fmt.Errorf("unsupported endpoint host type %q", values[0])
 		}
 	case policyJSONKind:
-		if !oneOf(values[0], "object", "array", "scalar", "nonNull") {
-			return fmt.Errorf("unsupported JSON kind %q", values[0])
+		for _, value := range values {
+			if !oneOf(value, "object", "array", "scalar", "nonNull") {
+				return fmt.Errorf("unsupported JSON kind %q", value)
+			}
 		}
 	case policyPathPresence, policyFractionalSeconds, policySemVerBuild, policySemVerPrerelease, policyCACertificate,
 		policyMediaParameters:
@@ -834,7 +859,7 @@ func policyCardinality(name string) (int, int) {
 		return 2, 2
 	case policyContaining, policyNotContaining, policyTrueValues, policyFalseValues, policyAllowedKeys, policyRequiredKeys,
 		policyExtensions, policyQueryKeys, policyURIHosts, policyContainsAddresses, policyUUIDVersions, policyPEMBlockTypes,
-		policyPrivateKeyAlgorithms, policyCertificateUsage:
+		policyPrivateKeyAlgorithms, policyCertificateUsage, policyIPClass, policyJSONKind:
 		return 1, -1
 	default:
 		return 1, 1
