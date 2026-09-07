@@ -106,10 +106,11 @@ type Rule struct {
 
 // Variable associates an environment name and optional fallbacks with a rule.
 type Variable struct {
-	Name      string   `json:"name"`
-	GoName    string   `json:"goName,omitempty"`
-	Rule      Rule     `json:"rule"`
-	Fallbacks []string `json:"fallbacks,omitempty"`
+	Deprecation string   `json:"deprecation,omitempty"`
+	Name        string   `json:"name"`
+	GoName      string   `json:"goName,omitempty"`
+	Rule        Rule     `json:"rule"`
+	Fallbacks   []string `json:"fallbacks,omitempty"`
 }
 
 // Schema is a validated collection of variables and cross-variable constraints.

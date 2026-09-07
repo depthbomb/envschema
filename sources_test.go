@@ -40,3 +40,22 @@ func TestFileSources(t *testing.T) {
 		t.Fatal("file source omitted from presence constraint")
 	}
 }
+
+func TestSourceReport(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, ".env"), []byte("A=file\nB=file\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, ".env.local"), []byte("A=local\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := envschema.EnvFileSource(directory, envschema.MapSource{Values: map[string]string{"OLD": "secret", "B": "process"}, Label: "process"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := envschema.Must(envschema.Var("A", envschema.String()), envschema.Var("B", envschema.String()), envschema.Var("C", envschema.Secret()).FallbackTo("OLD").Deprecated("use TOKEN"), envschema.Var("D", envschema.Int().DefaultTo(3)))
+	values, report, err := envschema.LoadWithReport(schema, source)
+	if err != nil || values["A"] != "local" || report.Origins["A"].Source != ".env.local" || report.Origins["B"].Source != "process" || !report.Origins["D"].Default || len(report.Notices) != 2 {
+		t.Fatalf("%v %#v %v", values, report, err)
+	}
+}

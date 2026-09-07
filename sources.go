@@ -3,7 +3,42 @@ package envschema
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 )
+
+// Source provides stable values, names, and source labels for one load.
+type Source interface {
+	Lookup(string) (string, bool)
+	Names() []string
+	Origin(string) string
+}
+
+// MapSource is an enumerable source. Do not mutate Values during loading.
+type MapSource struct {
+	Values map[string]string
+	Label  string
+}
+
+// ValueOrigin identifies the selected input without including its value.
+type ValueOrigin struct {
+	Name    string
+	Source  string
+	File    bool
+	Default bool
+}
+
+// LoadReport records selected origins and migration notices.
+type LoadReport struct {
+	Origins map[string]ValueOrigin
+	Notices []string
+}
+
+type layeredSource struct {
+	values  map[string]string
+	origins map[string]string
+}
 
 type FileConflict string
 
@@ -50,4 +85,149 @@ func readVariableSource(rule Rule, name string, fallbacks []string, lookup Looku
 // File contents are preserved exactly; use Trimmed where appropriate.
 func (rule Rule) FromFile(name string, conflict FileConflict) Rule {
 	return rule.WithPolicy("fileSource", name, string(conflict))
+}
+
+func (source MapSource) Lookup(name string) (string, bool) {
+	value, exists := source.Values[name]
+
+	return value, exists
+}
+
+func (source MapSource) Names() []string {
+	names := make([]string, 0, len(source.Values))
+	for name := range source.Values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	return names
+}
+
+func (source MapSource) Origin(string) string {
+	return source.Label
+}
+
+func (source layeredSource) Lookup(name string) (string, bool) {
+	value, exists := source.values[name]
+
+	return value, exists
+}
+
+func (source layeredSource) Names() []string {
+	return (MapSource{Values: source.values}).Names()
+}
+
+func (source layeredSource) Origin(name string) string {
+	return source.origins[name]
+}
+
+// ProcessSource snapshots the process environment.
+func ProcessSource() Source {
+	values := make(map[string]string)
+	for _, entry := range os.Environ() {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok {
+			values[name] = value
+		}
+	}
+
+	return MapSource{Values: values, Label: "process"}
+}
+
+// EnvFileSource reads .env then .env.local, with process values taking precedence.
+func EnvFileSource(directory string, process Source) (Source, error) {
+	result := layeredSource{values: make(map[string]string), origins: make(map[string]string)}
+	for _, filename := range []string{".env", ".env.local"} {
+		contents, err := os.ReadFile(filepath.Join(directory, filename))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		values, err := parseEnvFile(contents)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", filename, err)
+		}
+		for name, value := range values {
+			result.values[name] = value
+			result.origins[name] = filename
+		}
+	}
+	if process != nil {
+		for _, name := range process.Names() {
+			if value, exists := process.Lookup(name); exists {
+				result.values[name] = value
+				result.origins[name] = process.Origin(name)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// LoadWithReport parses a source and records origins, defaults, and fallback use.
+// Reports contain names and source labels, never input values or file contents.
+func LoadWithReport(schema Schema, source Source) (Values, LoadReport, error) {
+	report := LoadReport{Origins: make(map[string]ValueOrigin)}
+	if err := schema.Validate(); err != nil {
+		return nil, report, err
+	}
+	if source == nil {
+		return nil, report, fmt.Errorf("envschema: nil source")
+	}
+	resolved := make(map[string]string)
+	prepared := schema
+	prepared.Variables = append([]Variable(nil), schema.Variables...)
+	for i, variable := range schema.Variables {
+		selected := variable.Name
+		raw, present := source.Lookup(selected)
+		for _, name := range variable.Fallbacks {
+			if present {
+				break
+			}
+			selected = name
+			raw, present = source.Lookup(name)
+		}
+		origin := ValueOrigin{Name: selected, Source: source.Origin(selected)}
+		if policyValues, configured := policy(variable.Rule, "fileSource"); configured && len(policyValues) == 2 {
+			_, filePresent := source.Lookup(policyValues[0])
+			if filePresent && (!present || policyValues[1] == string(PreferFile)) {
+				origin = ValueOrigin{Name: policyValues[0], Source: source.Origin(policyValues[0]), File: true}
+			}
+		}
+		var err error
+		raw, present, err = readVariableSource(variable.Rule, variable.Name, variable.Fallbacks, source.Lookup)
+		if err != nil {
+			return nil, report, err
+		}
+		if present {
+			resolved[variable.Name] = raw
+		}
+		if (!present || raw == "" && !variable.Rule.EmptyAllowed) && variable.Rule.HasDefault {
+			origin = ValueOrigin{Source: "default", Default: true}
+		} else if !present {
+			continue
+		}
+		report.Origins[variable.Name] = origin
+		if !origin.Default && !origin.File && selected != variable.Name {
+			report.Notices = append(report.Notices, fmt.Sprintf("%s was supplied through fallback %s; migrate to %s", variable.Name, selected, variable.Name))
+		}
+		if variable.Deprecation != "" && !origin.Default {
+			report.Notices = append(report.Notices, fmt.Sprintf("%s is deprecated: %s", variable.Name, variable.Deprecation))
+		}
+		prepared.Variables[i].Fallbacks = nil
+		prepared.Variables[i].Rule = variable.Rule.WithPolicy("fileSource")
+		delete(prepared.Variables[i].Rule.Policies, "fileSource")
+	}
+	values, err := LoadFrom(prepared, func(name string) (string, bool) { value, ok := resolved[name]; return value, ok })
+
+	return values, report, err
+}
+
+// Deprecated attaches migration guidance, emitted by LoadWithReport when supplied.
+func (variable Variable) Deprecated(message string) Variable {
+	variable.Deprecation = message
+
+	return variable
 }

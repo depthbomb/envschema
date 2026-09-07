@@ -576,6 +576,9 @@ func schemaLiteral(schema envschema.Schema) (string, error) {
 		for _, fallback := range variable.Fallbacks {
 			constructor += ".FallbackTo(" + strconv.Quote(fallback) + ")"
 		}
+		if variable.Deprecation != "" {
+			constructor += ".Deprecated(" + strconv.Quote(variable.Deprecation) + ")"
+		}
 		variables[index] = constructor
 	}
 	var expression strings.Builder
