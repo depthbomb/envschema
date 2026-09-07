@@ -82,3 +82,7 @@ func TestSensitiveRules(t *testing.T) {
 func TestSensitiveCollectionUniqueness(t *testing.T) {
 	checkRule(t, envschema.List(envschema.String().Sensitive()).UniqueItems(), []string{"a,b"}, []string{"a,a"})
 }
+
+func TestObjects(t *testing.T) {
+	checkRule(t, envschema.Object(envschema.Field("port", envschema.Port()), envschema.Field("timeout", envschema.Duration().DefaultTo("2s")), envschema.Field("token", envschema.String().Sensitive().Optional())), []string{`{"port":8080}`}, []string{`{"port":70000}`, `{"port":8080,"extra":1}`, `{"port":1,"port":2}`, "null"})
+}

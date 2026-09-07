@@ -43,6 +43,8 @@ type Constraint struct {
 // Rule is the serializable, immutable-by-convention definition of one value.
 // Prefer constructors and fluent modifiers over populating its fields directly.
 type Rule struct {
+	Fields              []ObjectField       `json:"fields,omitempty"`
+	UnknownFields       bool                `json:"unknownFields,omitempty"`
 	Redact              bool                `json:"sensitive,omitempty"`
 	Kind                Kind                `json:"kind"`
 	Required            bool                `json:"required"`
@@ -479,8 +481,16 @@ func (schema Schema) Validate() error {
 }
 
 func validateRule(rule Rule, path string) error {
+	if rule.Kind == KindObject {
+		if err := validateObjectFields(rule.Fields, path); err != nil {
+			return err
+		}
+	} else if len(rule.Fields) > 0 || rule.UnknownFields {
+		return fmt.Errorf("envschema: %s object fields require Object", path)
+	}
+
 	switch rule.Kind {
-	case KindString, KindNumber, KindInt, KindFloat, KindBoolean, KindEnum, KindJSON,
+	case KindObject, KindString, KindNumber, KindInt, KindFloat, KindBoolean, KindEnum, KindJSON,
 		KindArray, KindList, KindDuration, KindDate, KindBytes, KindPath, KindBase64,
 		KindSecret, KindEmail, KindPort, KindURL, KindHost, KindUUID, KindIP, KindHash,
 		KindHex, KindSemVer, KindTimeZone, KindUInt, KindCIDR, KindEndpoint,
@@ -773,7 +783,7 @@ func (rule *Rule) UnmarshalJSON(data []byte) error {
 		"absolute": {}, "utc": {},
 		"customPackage": {}, "customName": {},
 		"strictBoolean": {}, "runeLength": {}, "noSurroundingSpace": {},
-		"policies": {}, "sensitive": {},
+		"policies": {}, "sensitive": {}, "fields": {}, "unknownFields": {},
 	}
 	for field := range fields {
 		if _, ok := allowedFields[field]; !ok {

@@ -138,6 +138,8 @@ func parseRule(rule Rule, raw any, path string) (any, error) {
 
 func parseRuleValue(rule Rule, raw any, path string) (any, error) {
 	switch rule.Kind {
+	case KindObject:
+		return parseObject(rule, raw, path)
 	case KindString:
 		return parseString(rule, raw, path)
 	case KindNumber, KindFloat:
@@ -3276,6 +3278,15 @@ func assignValue(target reflect.Value, source reflect.Value) error {
 		source = source.Elem()
 	}
 
+	if target.Kind() == reflect.Pointer && !source.Type().AssignableTo(target.Type()) {
+		value := reflect.New(target.Type().Elem())
+		if err := assignValue(value.Elem(), source); err != nil {
+			return err
+		}
+		target.Set(value)
+
+		return nil
+	}
 	if source.CanInterface() {
 		if protected, ok := source.Interface().(interface{ protectedValue() any }); ok {
 			if target.CanAddr() {
@@ -3293,6 +3304,9 @@ func assignValue(target reflect.Value, source reflect.Value) error {
 		return nil
 	}
 
+	if target.Kind() == reflect.Struct && source.Kind() == reflect.Map && source.Type().Key().Kind() == reflect.String {
+		return assignObject(target, source)
+	}
 	if target.Kind() == reflect.Slice && source.Kind() == reflect.Slice {
 		converted := reflect.MakeSlice(target.Type(), source.Len(), source.Len())
 		for index := 0; index < source.Len(); index++ {

@@ -149,3 +149,14 @@ func TestSensitive(t *testing.T) {
 }
 `)
 }
+
+func TestGeneratedObjects(t *testing.T) {
+	schema := envschema.Must(envschema.Var("BACKEND", envschema.Object(envschema.Field("port", envschema.Port()), envschema.Field("timeout", envschema.Duration().DefaultTo("2s")), envschema.Field("token", envschema.String().Sensitive().Optional()))))
+	testGeneratedPackage(t, schema, `package config
+import ("testing";"time")
+func TestObject(t *testing.T) {
+ config,err:=LoadFrom(func(string)(string,bool){return "{\"port\":8080,\"token\":\"abc\"}",true})
+ if err!=nil || config.Backend.Port!=8080 || config.Backend.Timeout!=2*time.Second || config.Backend.Token.Release()!="abc" {t.Fatalf("%v %v",config,err)}
+}
+`)
+}

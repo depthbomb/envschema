@@ -247,6 +247,22 @@ func ruleLiteral(rule envschema.Rule) (string, error) {
 	}
 	var expression string
 	switch rule.Kind {
+	case envschema.KindObject:
+		fields := make([]string, len(rule.Fields))
+		for i, field := range rule.Fields {
+			inner, err := ruleLiteral(field.Rule)
+			if err != nil {
+				return "", err
+			}
+			fields[i] = "envschema.Field(" + strconv.Quote(field.Name) + "," + inner + ")"
+			if field.GoName != "" {
+				fields[i] += ".Named(" + strconv.Quote(field.GoName) + ")"
+			}
+		}
+		expression = "envschema.Object(" + strings.Join(fields, ",") + ")"
+		if rule.UnknownFields {
+			expression += ".AllowUnknownFields()"
+		}
 	case envschema.KindString:
 		expression = "envschema.String()"
 	case envschema.KindNumber:
@@ -632,6 +648,23 @@ func sourceTypeFor(rule envschema.Rule, imports map[string]string) (string, erro
 
 		return "envschema.Protected[" + inner + "]", err
 	}
+	if rule.Kind == envschema.KindObject {
+		var result strings.Builder
+		result.WriteString("struct {")
+		for _, field := range rule.Fields {
+			inner, err := sourceTypeFor(field.Rule, imports)
+			if err != nil {
+				return "", err
+			}
+			if !field.Rule.Required && !field.Rule.HasDefault && !strings.HasPrefix(inner, "*") {
+				inner = "*" + inner
+			}
+			result.WriteString(envschema.ObjectFieldName(field) + " " + inner + " " + strconv.Quote("json:"+strconv.Quote(field.Name)) + ";")
+		}
+		result.WriteString("}")
+
+		return result.String(), nil
+	}
 	if rule.Kind == envschema.KindCustom {
 		alias := "custom"
 		for index := 0; ; index++ {
@@ -693,6 +726,9 @@ func defaultImports(value any, imports map[string]string) {
 }
 
 func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
+	for _, field := range rule.Fields {
+		ruleDefaultImports(field.Rule, imports)
+	}
 	if rule.HasDefault {
 		defaultImports(rule.Default, imports)
 	}
