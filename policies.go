@@ -607,7 +607,9 @@ func validatePolicies(rule Rule, path string) error {
 			valid = rule.Kind == KindInt || rule.Kind == KindUInt || rule.Kind == KindBigInt
 		case policyTrueValues, policyFalseValues:
 			valid = rule.Kind == KindBoolean
-		case policyAllowedKeys, policyRequiredKeys, policyJSONDepth, policyJSONKind, policyJSONSize, policyJSONUniqueKeys:
+		case policyAllowedKeys, policyRequiredKeys, policyJSONUniqueKeys:
+			valid = rule.Kind == KindJSON || rule.Kind == KindMap
+		case policyJSONDepth, policyJSONKind, policyJSONSize:
 			valid = rule.Kind == KindJSON
 		case policyCSV:
 			valid = rule.Kind == KindList || rule.Kind == KindMap
@@ -882,4 +884,10 @@ func policyCardinalityDescription(minimum int, maximum int) string {
 	}
 
 	return fmt.Sprintf("between %d and %d values", minimum, maximum)
+}
+
+// UniqueKeys explicitly requires distinct map keys after key normalization.
+// Maps always reject duplicate keys, including without this modifier.
+func (rule Rule) UniqueKeys() Rule {
+	return rule.WithPolicy(policyJSONUniqueKeys)
 }

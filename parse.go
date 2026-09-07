@@ -105,6 +105,11 @@ func parseRule(rule Rule, raw any, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if rule.Kind == KindMap {
+		if err := checkMapKeys(rule, value, path); err != nil {
+			return nil, err
+		}
+	}
 	if err := checkDecimalShape(rule, value, path); err != nil {
 		return nil, err
 	}
@@ -3289,3 +3294,23 @@ func DecodeJSON[T any](raw json.RawMessage) (T, error) {
 
 var _ fmt.Stringer = SecretValue{}
 var _ json.Marshaler = SecretValue{}
+
+func checkMapKeys(rule Rule, value any, path string) error {
+	entries := value.(map[string]any)
+	required, _ := policy(rule, policyRequiredKeys)
+	for _, key := range required {
+		if _, exists := entries[key]; !exists {
+			return fmt.Errorf("[%s] missing required map key %q", path, key)
+		}
+	}
+	allowed, configured := policy(rule, policyAllowedKeys)
+	if configured {
+		for key := range entries {
+			if !slices.Contains(allowed, key) {
+				return fmt.Errorf("[%s] unexpected map key %q", path, key)
+			}
+		}
+	}
+
+	return nil
+}

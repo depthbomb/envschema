@@ -42,3 +42,7 @@ func TestExactBounds(t *testing.T) {
 func TestDecimalShape(t *testing.T) {
 	checkRule(t, envschema.Decimal().WithPrecision(4).WithScale(2), []string{"12.34", "12.3400", "0", "1e-2"}, []string{"123.45", "0.001", "1/3"})
 }
+
+func TestMapKeyContracts(t *testing.T) {
+	checkRule(t, envschema.Map(envschema.String().Trimmed(), envschema.Int()).RequiredKeys("a").AllowedKeys("a", "b").UniqueKeys(), []string{"a=1,b=2"}, []string{"b=2", "a=1,c=2", "a=1,a=2"})
+}
