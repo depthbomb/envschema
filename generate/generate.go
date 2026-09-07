@@ -395,6 +395,13 @@ func ruleLiteral(rule envschema.Rule) (string, error) {
 	if rule.Pattern != "" {
 		expression += ".Matching(" + strconv.Quote(rule.Pattern) + ")"
 	}
+	for _, field := range rule.QueryFields {
+		inner, err := ruleLiteral(field.Rule)
+		if err != nil {
+			return "", err
+		}
+		expression += ".QueryParameter(" + strconv.Quote(field.Name) + "," + inner + ")"
+	}
 	if rule.MinLength != nil {
 		expression += ".WithMinLength(" + strconv.Itoa(*rule.MinLength) + ")"
 	}
@@ -726,6 +733,9 @@ func defaultImports(value any, imports map[string]string) {
 }
 
 func ruleDefaultImports(rule envschema.Rule, imports map[string]string) {
+	for _, field := range rule.QueryFields {
+		ruleDefaultImports(field.Rule, imports)
+	}
 	for _, field := range rule.Fields {
 		ruleDefaultImports(field.Rule, imports)
 	}

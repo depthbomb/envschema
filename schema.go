@@ -43,6 +43,7 @@ type Constraint struct {
 // Rule is the serializable, immutable-by-convention definition of one value.
 // Prefer constructors and fluent modifiers over populating its fields directly.
 type Rule struct {
+	QueryFields         []ObjectField       `json:"queryFields,omitempty"`
 	Fields              []ObjectField       `json:"fields,omitempty"`
 	UnknownFields       bool                `json:"unknownFields,omitempty"`
 	Redact              bool                `json:"sensitive,omitempty"`
@@ -481,6 +482,9 @@ func (schema Schema) Validate() error {
 }
 
 func validateRule(rule Rule, path string) error {
+	if err := validateQueryFields(rule, path); err != nil {
+		return err
+	}
 	if rule.Kind == KindObject {
 		if err := validateObjectFields(rule.Fields, path); err != nil {
 			return err
@@ -783,7 +787,7 @@ func (rule *Rule) UnmarshalJSON(data []byte) error {
 		"absolute": {}, "utc": {},
 		"customPackage": {}, "customName": {},
 		"strictBoolean": {}, "runeLength": {}, "noSurroundingSpace": {},
-		"policies": {}, "sensitive": {}, "fields": {}, "unknownFields": {},
+		"policies": {}, "sensitive": {}, "fields": {}, "unknownFields": {}, "queryFields": {},
 	}
 	for field := range fields {
 		if _, ok := allowedFields[field]; !ok {
