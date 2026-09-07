@@ -32,43 +32,47 @@ type Config struct {
 
 func LoadFrom(lookup envschema.LookupFunc) (Config, error) {
 	var config Config
+	var failures []error
 	value0, _, err := envschema.Read[string](generatedSchema.Variables[0].Rule, "DATABASE_URL", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	config.DatabaseUrl = value0
 	value1, _, err := envschema.Read[int64](generatedSchema.Variables[1].Rule, "PORT", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	config.Port = value1
 	value2, present2, err := envschema.Read[bool](generatedSchema.Variables[2].Rule, "DEBUG", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	if present2 {
 		config.Debug = &value2
 	}
 	value3, _, err := envschema.Read[time.Duration](generatedSchema.Variables[3].Rule, "REQUEST_TIMEOUT", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	config.RequestTimeout = value3
 	value4, _, err := envschema.Read[[]string](generatedSchema.Variables[4].Rule, "ALLOWED_HOSTS", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	config.AllowedHosts = value4
 	value5, _, err := envschema.Read[envschema.SecretValue](generatedSchema.Variables[5].Rule, "API_TOKEN", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	config.ApiToken = value5
 	value6, _, err := envschema.ReadText[custom.LogLevel](generatedSchema.Variables[6].Rule, "LOG_LEVEL", lookup)
 	if err != nil {
-		return Config{}, err
+		failures = append(failures, err)
 	}
 	config.LogLevel = value6
+	if err := envschema.JoinErrors(failures...); err != nil {
+		return Config{}, err
+	}
 
 	return config, nil
 }
@@ -80,4 +84,84 @@ func Load() (Config, error) {
 	}
 
 	return LoadFrom(lookup)
+}
+
+func LoadSource(input envschema.Source, prefixes ...string) (Config, error) {
+	if err := envschema.ValidateKnownVariables(generatedSchema, input, prefixes...); err != nil {
+		return Config{}, err
+	}
+	return LoadFrom(input.Lookup)
+}
+
+func LoadWithReport(input envschema.Source) (Config, envschema.LoadReport, error) {
+	values, report, err := envschema.LoadWithReport(generatedSchema, input)
+	if err != nil {
+		return Config{}, report, err
+	}
+	var config Config
+	var failures []error
+	if _, present := values["DATABASE_URL"]; present {
+		value, err := envschema.ValueAs[string](values, "DATABASE_URL")
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.DatabaseUrl = value
+		}
+	}
+	if _, present := values["PORT"]; present {
+		value, err := envschema.ValueAs[int64](values, "PORT")
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.Port = value
+		}
+	}
+	if _, present := values["DEBUG"]; present {
+		value, err := envschema.ValueAs[bool](values, "DEBUG")
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.Debug = &value
+		}
+	}
+	if _, present := values["REQUEST_TIMEOUT"]; present {
+		value, err := envschema.ValueAs[time.Duration](values, "REQUEST_TIMEOUT")
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.RequestTimeout = value
+		}
+	}
+	if _, present := values["ALLOWED_HOSTS"]; present {
+		value, err := envschema.ValueAs[[]string](values, "ALLOWED_HOSTS")
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.AllowedHosts = value
+		}
+	}
+	if _, present := values["API_TOKEN"]; present {
+		value, err := envschema.ValueAs[envschema.SecretValue](values, "API_TOKEN")
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.ApiToken = value
+		}
+	}
+	if _, present := values["LOG_LEVEL"]; present {
+		value, _, err := envschema.ReadText[custom.LogLevel](generatedSchema.Variables[6].Rule, "LOG_LEVEL", func(name string) (string, bool) {
+			value, present := values[name].(string)
+
+			return value, present
+		})
+		if err != nil {
+			failures = append(failures, err)
+		} else {
+			config.LogLevel = value
+		}
+	}
+	if err := envschema.JoinErrors(failures...); err != nil {
+		return Config{}, report, err
+	}
+	return config, report, nil
 }
