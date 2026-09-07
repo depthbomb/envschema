@@ -105,6 +105,9 @@ func parseRule(rule Rule, raw any, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkDecimalShape(rule, value, path); err != nil {
+		return nil, err
+	}
 	if err := checkExactPolicies(rule, value, path); err != nil {
 		return nil, err
 	}

@@ -38,3 +38,7 @@ func TestExactBounds(t *testing.T) {
 		t.Fatal("accepted inverted bounds")
 	}
 }
+
+func TestDecimalShape(t *testing.T) {
+	checkRule(t, envschema.Decimal().WithPrecision(4).WithScale(2), []string{"12.34", "12.3400", "0", "1e-2"}, []string{"123.45", "0.001", "1/3"})
+}
