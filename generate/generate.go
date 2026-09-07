@@ -889,7 +889,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	fmt.Fprintf(&source, "type %s struct {\n", options.Type)
 	var fields []*groupField
 	for index, variable := range schema.Variables {
-		if err := addGroupField(&fields, strings.Split(names[index], "."), types[index], strconv.Quote("env:"+strconv.Quote(variable.Name))); err != nil {
+		if err := addGroupField(&fields, strings.Split(names[index], "."), types[index], string(rune(96))+"env:"+strconv.Quote(variable.Name)+string(rune(96))); err != nil {
 			return nil, err
 		}
 	}
@@ -899,7 +899,8 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	source.WriteString("}\n\n")
 	fmt.Fprintf(&source, "func LoadFrom(lookup envschema.LookupFunc) (%s, error) {\n", options.Type)
 	fmt.Fprintf(&source, "\tvar config %s\n", options.Type)
-	reuseValues := constraintsParseValues(schema)
+	source.WriteString("var failures []error\n")
+	reuseValues := len(schema.Constraints) > 0
 	if reuseValues {
 		source.WriteString("\tvalues, err := envschema.LoadFrom(generatedSchema, lookup)\n")
 		fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
@@ -924,7 +925,7 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 				fmt.Fprintf(&source, "\tif _, present := values[%q]; present {\n", variable.Name)
 			}
 			fmt.Fprintf(&source, "\tvalue%d, err := envschema.ValueAs[%s](values, %q)\n", index, baseType, variable.Name)
-			fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
+			source.WriteString("if err!=nil { failures=append(failures,err) }\n")
 			address := ""
 			if optionalPointers[index] {
 				address = "&"
@@ -958,14 +959,15 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 		}
 		if optionalPointers[index] {
 			fmt.Fprintf(&source, "\tvalue%d, present%d, err := %s[%s](generatedSchema.Variables[%d].Rule, %q%s, %s)\n", index, index, reader, baseType, index, variable.Name, fallbacks, lookupName)
-			fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
+			source.WriteString("if err!=nil { failures=append(failures,err) }\n")
 			fmt.Fprintf(&source, "\tif present%d {\n\t\tconfig.%s = &value%d\n\t}\n", index, names[index], index)
 		} else {
 			fmt.Fprintf(&source, "\tvalue%d, _, err := %s[%s](generatedSchema.Variables[%d].Rule, %q%s, %s)\n", index, reader, baseType, index, variable.Name, fallbacks, lookupName)
-			fmt.Fprintf(&source, "\tif err != nil {\n\t\treturn %s{}, err\n\t}\n", options.Type)
+			source.WriteString("if err!=nil { failures=append(failures,err) }\n")
 			fmt.Fprintf(&source, "\tconfig.%s = value%d\n", names[index], index)
 		}
 	}
+	fmt.Fprintf(&source, "if err:=envschema.JoinErrors(failures...);err!=nil{return %s{},err}\n", options.Type)
 	source.WriteString("\n\treturn config, nil\n}\n\n")
 	fmt.Fprintf(&source, "func Load() (%s, error) {\n", options.Type)
 	source.WriteString("\tlookup, err := envschema.LookupEnvFiles()\n")
@@ -976,6 +978,8 @@ func Source(schema envschema.Schema, options Options) ([]byte, error) {
 	fmt.Fprintf(&source, "\nfunc LoadSource(input envschema.Source, prefixes ...string) (%s,error) {\n", options.Type)
 	fmt.Fprintf(&source, "if err := envschema.ValidateKnownVariables(generatedSchema,input,prefixes...); err != nil { return %s{},err }\n", options.Type)
 	source.WriteString("return LoadFrom(input.Lookup)\n}\n")
+
+	writeReportLoader(&source, schema, options.Type, names, types, optionalPointers)
 
 	formatted, err := format.Source(source.Bytes())
 	if err != nil {

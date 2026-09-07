@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/token"
 	"reflect"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -98,6 +99,7 @@ func parseObject(rule Rule, raw any, path string) (any, error) {
 		return nil, fmt.Errorf("[%s] expected object", path)
 	}
 	result := make(map[string]any)
+	var failures []error
 	known := make(map[string]bool)
 	for _, field := range rule.Fields {
 		known[field.Name] = true
@@ -106,23 +108,34 @@ func parseObject(rule Rule, raw any, path string) (any, error) {
 			if field.Rule.HasDefault {
 				raw = field.Rule.Default
 			} else if field.Rule.Required {
-				return nil, fmt.Errorf("[%s.%s] required field is missing", path, field.Name)
+				failures = append(failures, validationError(path+"."+field.Name, "required", fmt.Errorf("[%s.%s] required field is missing", path, field.Name)))
+				continue
 			} else {
 				continue
 			}
 		}
 		value, err := parseRule(field.Rule, raw, path+"."+field.Name)
 		if err != nil {
-			return nil, err
+			failures = append(failures, err)
+			continue
 		}
 		result[field.Name] = value
 	}
 	if !rule.UnknownFields {
+		names := make([]string, 0, len(object))
 		for name := range object {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
 			if !known[name] {
-				return nil, fmt.Errorf("[%s] unknown object field %q", path, name)
+				failures = append(failures, validationError(path+"."+name, "unknown", fmt.Errorf("[%s] unknown object field %q", path, name)))
 			}
 		}
+	}
+
+	if err := JoinErrors(failures...); err != nil {
+		return nil, err
 	}
 
 	return result, nil

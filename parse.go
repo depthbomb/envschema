@@ -77,18 +77,18 @@ func lookupOS(name string) (string, bool) {
 func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc) (any, bool, error) {
 	rawValue, exists, sourceErr := readVariableSource(rule, name, fallbacks, lookup)
 	if sourceErr != nil {
-		return nil, false, sourceErr
+		return nil, false, validationError(name, "source", sourceErr)
 	}
 
 	if _, explicit := policy(rule, "explicitInput"); explicit && (!exists || rawValue == "" && !rule.EmptyAllowed) {
-		return nil, false, fmt.Errorf("[%s] explicit input is required", name)
+		return nil, false, validationError(name, "explicit_input", fmt.Errorf("[%s] explicit input is required", name))
 	}
 
 	var raw any = rawValue
 	if !exists || rawValue == "" && !rule.EmptyAllowed {
 		if !rule.HasDefault {
 			if rule.Required {
-				return nil, false, fmt.Errorf("environment variable %q is required but not defined", name)
+				return nil, false, validationError(name, "required", fmt.Errorf("environment variable %q is required but not defined", name))
 			}
 
 			return nil, false, nil
@@ -104,7 +104,9 @@ func parseVariable(rule Rule, name string, fallbacks []string, lookup LookupFunc
 	return value, true, nil
 }
 
-func parseRule(rule Rule, raw any, path string) (any, error) {
+func parseRule(rule Rule, raw any, path string) (result any, failure error) {
+	defer func() { failure = validationError(path, "invalid", failure) }()
+
 	if rule.Redact {
 		rule.Redact = false
 		value, err := parseRule(rule, raw, path)
@@ -1213,6 +1215,7 @@ func parseItems(rule Rule, items []any, path string, unique bool) (any, error) {
 
 func parseItemsAs[T any](rule Rule, items []any, path string, unique bool) ([]T, error) {
 	parsed := make([]T, len(items))
+	var failures []error
 	var seenComparable map[any]struct{}
 	var seenEncoded map[string]struct{}
 	if unique {
@@ -1223,7 +1226,8 @@ func parseItemsAs[T any](rule Rule, items []any, path string, unique bool) ([]T,
 		itemPath := path + "[" + strconv.Itoa(index) + "]"
 		value, err := parseRule(rule, item, itemPath)
 		if err != nil {
-			return nil, err
+			failures = append(failures, err)
+			continue
 		}
 		parsed[index] = value.(T)
 
@@ -1245,11 +1249,16 @@ func parseItemsAs[T any](rule Rule, items []any, path string, unique bool) ([]T,
 		}
 	}
 
+	if err := JoinErrors(failures...); err != nil {
+		return nil, err
+	}
+
 	return parsed, nil
 }
 
 func parseUntypedItems(rule Rule, items []any, path string, unique bool) ([]any, error) {
 	parsed := make([]any, len(items))
+	var failures []error
 	var seen map[string]struct{}
 	if unique {
 		seen = make(map[string]struct{}, len(items))
@@ -1258,7 +1267,8 @@ func parseUntypedItems(rule Rule, items []any, path string, unique bool) ([]any,
 		itemPath := path + "[" + strconv.Itoa(index) + "]"
 		value, err := parseRule(rule, item, itemPath)
 		if err != nil {
-			return nil, err
+			failures = append(failures, err)
+			continue
 		}
 		parsed[index] = value
 
@@ -1278,6 +1288,10 @@ func parseUntypedItems(rule Rule, items []any, path string, unique bool) ([]any,
 			}
 			seen[key] = struct{}{}
 		}
+	}
+
+	if err := JoinErrors(failures...); err != nil {
+		return nil, err
 	}
 
 	return parsed, nil
@@ -2839,22 +2853,25 @@ func LoadFrom(schema Schema, lookup LookupFunc) (Values, error) {
 		schema.validated = true
 	}
 	values := make(Values, len(schema.Variables))
-	if err := validateConstraints(schema, lookup, values); err != nil {
-		return nil, err
-	}
-
+	var failures []error
+	invalid := make(map[string]bool)
 	for _, variable := range schema.Variables {
-		if _, parsed := values[variable.Name]; parsed {
-			continue
-		}
 		value, present, err := parseVariable(variable.Rule, variable.Name, variable.Fallbacks, lookup)
 		if err != nil {
-			return nil, err
-		}
-		if !present {
+			failures = append(failures, err)
+			invalid[variable.Name] = true
 			continue
 		}
-		values[variable.Name] = value
+		if present {
+			values[variable.Name] = value
+		}
+	}
+	if err := evaluateConstraints(schema, lookup, values, invalid); err != nil {
+		failures = append(failures, err)
+	}
+
+	if err := JoinErrors(failures...); err != nil {
+		return nil, err
 	}
 
 	return values, nil
@@ -2866,6 +2883,10 @@ func ValidateConstraints(schema Schema, lookup LookupFunc) error {
 }
 
 func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error {
+	return evaluateConstraints(schema, lookup, parsed, nil)
+}
+
+func evaluateConstraints(schema Schema, lookup LookupFunc, parsed Values, invalid map[string]bool) error {
 	if len(schema.Constraints) == 0 {
 		return nil
 	}
@@ -2936,7 +2957,7 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 
 		return reflect.DeepEqual(value, expectedValue), nil
 	}
-	for _, constraint := range schema.Constraints {
+	evaluate := func(constraint Constraint) error {
 		present := 0
 		for _, name := range constraint.Names {
 			if _, exists := read(name); exists {
@@ -3040,7 +3061,7 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 				return rightErr
 			}
 			if !leftPresent || !rightPresent {
-				continue
+				return nil
 			}
 			if constraint.Kind == ConstraintEqualValues && !reflect.DeepEqual(left, right) {
 				return fmt.Errorf("envschema: variables [%s] must be equal", strings.Join(constraint.Names, ", "))
@@ -3064,9 +3085,27 @@ func validateConstraints(schema Schema, lookup LookupFunc, parsed Values) error 
 				return fmt.Errorf("envschema: TLS key pair [%s]: %w", strings.Join(constraint.Names, ", "), err)
 			}
 		}
+		return nil
+	}
+	var failures []error
+	for _, constraint := range schema.Constraints {
+		skip := false
+		for _, name := range constraint.Names {
+			if invalid[name] {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		if err := evaluate(constraint); err != nil {
+			failures = append(failures, validationError(strings.Join(constraint.Names, ","), "constraint", err))
+		}
 	}
 
-	return nil
+	return JoinErrors(failures...)
+
 }
 
 func constraintRat(value any) (*big.Rat, bool) {
@@ -3257,7 +3296,7 @@ func ReadWithFallbacks[T any](rule Rule, name string, fallbacks []string, lookup
 
 	target := reflect.ValueOf(&result).Elem()
 	if err := assignValue(target, reflect.ValueOf(value)); err != nil {
-		return result, false, fmt.Errorf("environment variable %q: %w", name, err)
+		return result, false, validationError(name, "invalid", fmt.Errorf("environment variable %q: %w", name, err))
 	}
 
 	return result, true, nil
@@ -3280,7 +3319,7 @@ func ReadTextWithFallbacks[T any](rule Rule, name string, fallbacks []string, lo
 		return result, false, fmt.Errorf("environment variable %q: %T does not implement encoding.TextUnmarshaler", name, &result)
 	}
 	if err := unmarshaler.UnmarshalText([]byte(value.(string))); err != nil {
-		return result, false, fmt.Errorf("environment variable %q: %w", name, err)
+		return result, false, validationError(name, "invalid", fmt.Errorf("environment variable %q: %w", name, err))
 	}
 
 	return result, true, nil

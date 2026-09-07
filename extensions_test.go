@@ -2,6 +2,7 @@ package envschema_test
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/depthbomb/envschema"
 	"testing"
 )
@@ -137,5 +138,19 @@ func TestGroups(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAggregatedErrors(t *testing.T) {
+	schema := envschema.Must(envschema.Var("PORT", envschema.Port()), envschema.Var("BACKENDS", envschema.Array(envschema.Object(envschema.Field("timeout", envschema.Duration())))))
+	_, err := envschema.LoadFrom(schema, func(name string) (string, bool) {
+		if name == "PORT" {
+			return "bad", true
+		}
+		return `[{"timeout":"bad"},{"timeout":"also bad"}]`, true
+	})
+	var failures *envschema.ValidationErrors
+	if !errors.As(err, &failures) || len(failures.Issues) != 3 || failures.Issues[2].Path != "BACKENDS[1].timeout" {
+		t.Fatalf("%#v %v", failures, err)
 	}
 }

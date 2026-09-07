@@ -90,8 +90,8 @@ func TestSourceGeneratesExtendedTypesAndConstraints(t *testing.T) {
 		[]byte("map[string]uint64"),
 		[]byte(`FallbackTo("LEGACY_OLD")`),
 		[]byte(`AtLeastOneOf("CIDR", "PATTERN")`),
-		[]byte("envschema.ValidateConstraints"),
-		[]byte("envschema.ReadWithFallbacks[string]"),
+		[]byte("envschema.LoadFrom"),
+		[]byte("envschema.ValueAs[string]"),
 	} {
 		if !bytes.Contains(source, expected) {
 			t.Fatalf("generated source does not contain %q\n%s", expected, source)

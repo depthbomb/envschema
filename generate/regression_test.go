@@ -172,3 +172,15 @@ func TestGroups(t *testing.T) {
 }
 `)
 }
+
+func TestGeneratedAggregatedErrors(t *testing.T) {
+	schema := envschema.Must(envschema.Var("A", envschema.Int()), envschema.Var("B", envschema.Boolean()))
+	testGeneratedPackage(t, schema, `package config
+import ("testing";"errors";"github.com/depthbomb/envschema")
+func TestErrors(t *testing.T) {
+ _,err:=LoadFrom(func(string)(string,bool){return "bad",true})
+ var failures *envschema.ValidationErrors
+ if !errors.As(err,&failures) || len(failures.Issues)!=2 || failures.Issues[1].Path!="B" {t.Fatalf("%v",err)}
+}
+`)
+}
