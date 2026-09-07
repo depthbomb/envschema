@@ -1227,6 +1227,17 @@ func parseUntypedItems(rule Rule, items []any, path string, unique bool) ([]any,
 func parseDuration(rule Rule, raw any, path string) (any, error) {
 	var value time.Duration
 	switch raw := raw.(type) {
+	case json.Number:
+		milliseconds, ok := new(big.Rat).SetString(raw.String())
+		if !ok {
+			return nil, fmt.Errorf("[%s] expected numeric duration", path)
+		}
+		milliseconds.Mul(milliseconds, new(big.Rat).SetInt64(int64(time.Millisecond)))
+		nanoseconds := new(big.Int).Quo(milliseconds.Num(), milliseconds.Denom())
+		if !nanoseconds.IsInt64() {
+			return nil, fmt.Errorf("[%s] duration is outside time.Duration range", path)
+		}
+		value = time.Duration(nanoseconds.Int64())
 	case time.Duration:
 		value = raw
 	case string:
@@ -2568,6 +2579,8 @@ func parseBigInt(rule Rule, raw any, path string) (any, error) {
 	}
 	var value string
 	switch raw := raw.(type) {
+	case json.Number:
+		value = raw.String()
 	case string:
 		value = raw
 	case int:

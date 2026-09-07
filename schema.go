@@ -728,7 +728,9 @@ func (rule *Rule) UnmarshalJSON(data []byte) error {
 		UUID:     UUIDAny,
 	}
 	type ruleJSON Rule
-	if err := json.Unmarshal(data, (*ruleJSON)(&defaults)); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	if err := decoder.Decode((*ruleJSON)(&defaults)); err != nil {
 		return err
 	}
 
