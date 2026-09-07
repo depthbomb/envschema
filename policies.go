@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -592,6 +593,20 @@ func policyInt(rule Rule, name string) (int, bool) {
 
 func validatePolicies(rule Rule, path string) error {
 	for name, values := range rule.Policies {
+		if name == "nonOverlapping" || name == "subnetsOf" {
+			if (rule.Kind != KindList && rule.Kind != KindArray) || rule.Item == nil || rule.Item.Kind != KindCIDR {
+				return fmt.Errorf("envschema: %s requires a CIDR collection", name)
+			}
+			if name == "nonOverlapping" && len(values) != 0 || name == "subnetsOf" && len(values) != 1 {
+				return fmt.Errorf("envschema: invalid %s policy", name)
+			}
+			if name == "subnetsOf" {
+				if _, err := netip.ParsePrefix(values[0]); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if handled, err := validateExactPolicy(rule, name, values); handled {
 			if err != nil {
 				return fmt.Errorf("envschema: %s: %w", path, err)
@@ -890,4 +905,46 @@ func policyCardinalityDescription(minimum int, maximum int) string {
 // Maps always reject duplicate keys, including without this modifier.
 func (rule Rule) UniqueKeys() Rule {
 	return rule.WithPolicy(policyJSONUniqueKeys)
+}
+
+// NonOverlapping rejects overlapping CIDR prefixes, including duplicates.
+func (rule Rule) NonOverlapping() Rule {
+	return rule.WithPolicy("nonOverlapping")
+}
+
+// SubnetsOf requires every CIDR prefix to lie within parent.
+func (rule Rule) SubnetsOf(parent string) Rule {
+	return rule.WithPolicy("subnetsOf", parent)
+}
+
+func checkCIDRCollection(rule Rule, value any, path string) error {
+	_, overlap := policy(rule, "nonOverlapping")
+	parents, within := policy(rule, "subnetsOf")
+	if !overlap && !within {
+		return nil
+	}
+	prefixes, ok := value.([]netip.Prefix)
+	if !ok {
+		return fmt.Errorf("[%s] expected CIDR collection", path)
+	}
+	var parent netip.Prefix
+	if within {
+		var err error
+		parent, err = netip.ParsePrefix(parents[0])
+		if err != nil {
+			return err
+		}
+	}
+	ordered := append([]netip.Prefix(nil), prefixes...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Masked().Addr().Less(ordered[j].Masked().Addr()) })
+	for i, prefix := range ordered {
+		if within && (prefix.Addr().BitLen() != parent.Addr().BitLen() || prefix.Bits() < parent.Bits() || !parent.Contains(prefix.Masked().Addr())) {
+			return fmt.Errorf("[%s] subnet outside parent", path)
+		}
+		if overlap && i > 0 && ordered[i-1].Overlaps(prefix) {
+			return fmt.Errorf("[%s] overlapping subnets", path)
+		}
+	}
+
+	return nil
 }

@@ -105,6 +105,9 @@ func parseRule(rule Rule, raw any, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkCIDRCollection(rule, value, path); err != nil {
+		return nil, err
+	}
 	if rule.Kind == KindMap {
 		if err := checkMapKeys(rule, value, path); err != nil {
 			return nil, err

@@ -46,3 +46,7 @@ func TestDecimalShape(t *testing.T) {
 func TestMapKeyContracts(t *testing.T) {
 	checkRule(t, envschema.Map(envschema.String().Trimmed(), envschema.Int()).RequiredKeys("a").AllowedKeys("a", "b").UniqueKeys(), []string{"a=1,b=2"}, []string{"b=2", "a=1,c=2", "a=1,a=2"})
 }
+
+func TestCIDRCollections(t *testing.T) {
+	checkRule(t, envschema.List(envschema.CIDR()).NonOverlapping().SubnetsOf("10.0.0.0/8"), []string{"10.0.0.0/24,10.1.0.0/24"}, []string{"10.0.0.0/16,10.0.1.0/24", "192.168.0.0/24", "::/0", "10.0.0.0/24,10.0.0.0/24"})
+}
