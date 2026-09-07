@@ -1,13 +1,13 @@
 # envschema
 
-`envschema` defines and validates an application's environment contract, then generates a concrete Go configuration
-type. It is a Go adaptation of the schema model in `@depthbomb/env`: variables are required by default, defaults are
-validated, collections recursively validate their items, and secrets redact themselves.
+`envschema` lets you describe the environment variables your app needs, validate them, and generate a concrete Go
+configuration type. It brings the schema model from `@depthbomb/env` to Go: variables are required by default,
+defaults get validated too, collections validate their items recursively, and secrets redact themselves.
 
 ## Define and generate
 
-Define an exported provider in a dedicated schema package. Keeping the definition in a child package avoids an import
-cycle with the generated parent package:
+Start with an exported provider in its own schema package. Put it in a child package to avoid an import cycle with
+the generated parent package:
 
 ```go
 package schema
@@ -32,20 +32,20 @@ func (Environment) EnvSchema() envschema.Schema {
 }
 ```
 
-Register the generator as a module tool:
+Add the generator as a module tool:
 
 ```shell
 go get -tool github.com/depthbomb/envschema/cmd/envschema@latest
 ```
 
-The command discovers the exported `envschema.Provider`, compiles and executes it in a temporary loader, validates its
-result, and generates the parent package:
+Run the generator to find your exported `envschema.Provider`, compile and run it in a temporary loader, validate the
+result, and generate the parent package:
 
 ```shell
 go tool envschema generate ./schema
 ```
 
-To integrate it with the Go toolchain, add a directive to the generated package:
+To hook this into the Go toolchain, add a directive to the generated package:
 
 ```go
 // Package config loads the application's environment configuration.
@@ -54,13 +54,13 @@ To integrate it with the Go toolchain, add a directive to the generated package:
 package config
 ```
 
-Then normal generation is:
+After that, just run:
 
 ```shell
 go generate
 ```
 
-The resulting API is ordinary typed Go code:
+You get ordinary typed Go code:
 
 ```go
 config, err := config.Load()
@@ -76,7 +76,7 @@ hosts := config.AllowedHosts         // []string
 token := config.ApiToken.Release()   // explicit access to the secret
 ```
 
-`Load()` reads files alongside the running binary in this order, with values in `.env.local` overriding values from
+`Load()` looks for these files next to the running binary, in this order. Values in `.env.local` override those in
 `.env`:
 
 ```text
@@ -84,13 +84,13 @@ token := config.ApiToken.Release()   // explicit access to the secret
 .env.local
 ```
 
-Existing process environment variables override both files. Missing files are ignored, while malformed or unreadable
-files cause loading to fail. `.env.local` should be ignored by version control.
+Existing process environment variables override both files. Missing files are fine, but loading fails if a file is
+malformed or can't be read. Keep `.env.local` out of version control.
 
-Use `envschema.Named("LEGACY_NAME", "PreferredName", rule)` when automatic environment-name conversion is not suitable.
-`LoadFrom` accepts an `envschema.LookupFunc`, which makes tests independent of global process state.
+If the automatic field name isn't what you want, use `envschema.Named("LEGACY_NAME", "PreferredName", rule)`.
+For tests, `LoadFrom` accepts an `envschema.LookupFunc` so you don't have to change the global process environment.
 
-Fallback names support safe environment-variable migrations:
+Fallback names let you migrate environment variables without breaking existing setups:
 
 ```go
 envschema.Var("DATABASE_URL", envschema.URL()).FallbackTo("LEGACY_DATABASE_URL")
@@ -98,8 +98,8 @@ envschema.Var("DATABASE_URL", envschema.URL()).FallbackTo("LEGACY_DATABASE_URL")
 
 See [example/config/schema/schema.go](example/config/schema/schema.go) and its checked-in [generated output](example/config/config_gen.go) for a complete example.
 
-The command accepts `-name`, `-target`, `-output`, `-package`, and `-type` overrides. If a package contains multiple
-providers, select one with `-name`. The `generate` package remains available for custom tooling.
+You can customize the command with `-name`, `-target`, `-output`, `-package`, and `-type`. If your package has more than
+one provider, pick one with `-name`. You can also use the `generate` package to build your own tooling.
 
 ## Rules and generated types
 
@@ -133,11 +133,11 @@ providers, select one with `-name`. The `generate` package remains available for
 | `MediaType`, `ULID`, `Glob`                                               | `string`                                   | MIME media types, canonical ULIDs, and platform filepath glob syntax                                                |
 | `Email`, `Host`, `UUID`, `IPAddress`, `Hash`, `Hex`, `SemVer`, `TimeZone` | `string`                                   | format-specific policies                                                                                            |
 
-Every rule is required unless `.Optional()` is used. An optional rule without a default generates a pointer. An optional
-rule with a default generates the normal non-pointer type because a value is guaranteed after loading.
+Every rule is required unless you add `.Optional()`. Optional rules without defaults generate pointers. If an optional
+rule has a default, it gets the normal non-pointer type, since a value will always be available after loading.
 
-Rules use immutable fluent modifiers, so reusable base rules remain safe and schema declarations read from left to
-right:
+Chain modifiers to build up a rule from left to right. Each modifier returns a copy, so you can safely reuse a base
+rule elsewhere:
 
 ```go
 envschema.String().Trimmed().Matching(`^[a-z]+$`)
@@ -158,19 +158,19 @@ envschema.IPAddress().PrivateOnly().WithoutLoopback()
 envschema.Certificate().CurrentlyValid().ForHostname("api.example.com").ServerAuth()
 ```
 
-Less common and forward-compatible modifiers are represented in `Rule.Policies`. `WithPolicy` is public so generated
-schemas and JSON definitions preserve these options, but schema validation rejects unknown, malformed, or inapplicable
-policy metadata.
+Less common modifiers live in `Rule.Policies`, which also leaves room for future options. The public `WithPolicy`
+method lets generated schemas and JSON definitions keep those options intact. Schema validation still rejects policy
+metadata that's unknown, malformed, or doesn't apply to the rule.
 
-Rules can be configured with either functional options or fluent modifiers. Defaults use the same representations
-accepted from the environment; typed `time.Duration` and `time.Time` defaults are preserved by code generation.
+You can configure rules with functional options or chained modifiers. Defaults accept the same representations as
+environment values, and code generation preserves typed `time.Duration` and `time.Time` defaults.
 
-Duration values use [`github.com/depthbomb/duration`](https://github.com/depthbomb/duration), supporting compound and human-readable values such as
-`1 day 3h 15m`. A bare number is interpreted as milliseconds.
+Duration parsing uses [`github.com/depthbomb/duration`](https://github.com/depthbomb/duration), so you can write compound, human-readable values like
+`1 day 3h 15m`. A number on its own means milliseconds.
 
 ### Cross-variable contracts
 
-Constraints compose after `Must` and are enforced by both dynamic and generated loaders:
+Chain constraints after `Must` to add checks across variables. Both dynamic and generated loaders enforce them:
 
 ```go
 return envschema.Must(
@@ -185,14 +185,14 @@ return envschema.Must(
 	ForbiddenWhen("MODE", "local", "PASSWORD")
 ```
 
-Presence contracts include `AtLeastOneOf`, `AtMostOneOf`/`MutuallyExclusive`, `RequiredUnless`, and `RequiredIfPresent`.
-Value contracts include `EqualValues`, `DifferentValues`, and `LessThanVariable`; they apply when both values are
-present. `TLSKeyPair` verifies that a certificate's public key matches its private key. Defaults count as present.
-Constraint declarations and references are validated when the schema is built.
+For presence checks, you also have `AtLeastOneOf`, `AtMostOneOf`/`MutuallyExclusive`, `RequiredUnless`, and `RequiredIfPresent`.
+To compare values, use `EqualValues`, `DifferentValues`, or `LessThanVariable`; these checks run when both values are
+present. `TLSKeyPair` checks that a certificate's public key matches its private key. Defaults count as present.
+Building the schema also validates the constraint declarations and the variables they refer to.
 
 ### Custom domain types
 
-Named types whose pointer implements `encoding.TextUnmarshaler` can be generated directly:
+You can generate fields with your own named types, as long as a pointer to the type implements `encoding.TextUnmarshaler`:
 
 ```go
 type LogLevel string
@@ -205,13 +205,13 @@ func (level *LogLevel) UnmarshalText(text []byte) error {
 envschema.Var("LOG_LEVEL", envschema.Custom[LogLevel]())
 ```
 
-The generated field has type `LogLevel`. Custom rules are intentionally limited to top-level variables so generated
-parsing remains static and type safe.
+The generated field is a `LogLevel`. Custom rules work only on top-level variables, keeping the generated parsing
+static and type safe.
 
 ## Composing configuration contracts
 
-Conditional validation applies an additional rule when another variable's parsed value matches.
-It must preserve the target's kind and cannot introduce defaults or change its source:
+Use conditional validation to add a rule when another variable's parsed value matches. The extra rule must keep
+the target's kind, and it can't add defaults or change where the value comes from:
 
 ```go
 schema.ValidateWhen("MODE", "production", "PUBLIC_URL", envschema.URL().HTTPSOnly())
@@ -220,12 +220,12 @@ schema.SubsetOf("ACTIVE_REGIONS", "ENABLED_REGIONS")
 schema.DisjointWith("ALLOWED_HOSTS", "BLOCKED_HOSTS")
 ```
 
-Relationships compare parsed values, using list/array items and map keys. They apply when both variables are present.
-Combine them with presence constraints when both are mandatory.
+These relationships compare parsed values: items for lists and arrays, keys for maps. They run when both variables
+are present. Add presence constraints too if both variables need to be present.
 
-`Object` validates JSON properties recursively and generates a concrete struct. Missing optional fields become pointers;
-defaults populate fields. Unknown properties and duplicate JSON keys are rejected. `AllowUnknownFields` explicitly
-accepts and discards undeclared properties.
+Use `Object` to validate JSON properties recursively and generate a concrete struct. Optional fields without
+defaults get pointers, and defaults fill in missing values. Unknown properties and duplicate JSON keys are rejected.
+Add `AllowUnknownFields` if you want to accept and discard properties that aren't in the schema.
 
 ```go
 envschema.Var("BACKEND", envschema.Object(
@@ -235,20 +235,20 @@ envschema.Var("BACKEND", envschema.Object(
 ))
 ```
 
-Use `Field(...).Named("GoFieldName")` to override a generated property name. Objects can nest inside objects and
-collections. Custom domain types retain their top-level restriction.
+Use `Field(...).Named("GoFieldName")` to choose a generated property name. You can nest objects inside other objects
+and collections. Custom domain types still work only at the top level.
 
-`Sensitive()` wraps a rule's result in `Protected[T]` in generated code. Formatting and serialization redact it;
-`Release()` returns the parsed `T`. Dynamic loaders return `Protected[any]`, convertible with `ValueAs[Protected[T]]`.
-Validation errors for protected values omit the underlying parser message.
+Add `Sensitive()` to wrap a rule's result in `Protected[T]` in generated code. Formatting and serialization redact
+the value; call `Release()` to get the parsed `T`. Dynamic loaders return `Protected[any]`, which you can convert with
+`ValueAs[Protected[T]]`. Validation errors for protected values leave out the underlying parser message.
 
 ```go
 envschema.Var("DATABASE_URL", envschema.URL().WithSchemes("postgres").Sensitive())
 envschema.Var("TOKEN", envschema.Base64().ExactlyDecodedBytes(32).Sensitive())
 ```
 
-Reusable groups prefix primary names, fallbacks, companion file names, and constraint references. Generated fields
-are nested, for example `config.Primary.Port`:
+Groups let you reuse a schema with a prefix on its primary names, fallbacks, companion file names, and constraint
+references. The generated fields are nested, so you can access them as `config.Primary.Port`, for example:
 
 ```go
 database := envschema.Must(
@@ -258,7 +258,7 @@ database := envschema.Must(
 schema := envschema.Must().WithGroup("Primary", "PRIMARY_DB_", database).WithGroup("Replica", "REPLICA_DB_", database)
 ```
 
-Additional numeric, collection, and query contracts include:
+Here are a few more checks for numbers, collections, and query parameters:
 
 ```go
 envschema.Uint().AtMostUint64(18446744073709551614)
@@ -270,45 +270,48 @@ envschema.List(envschema.CIDR()).NonOverlapping().SubnetsOf("10.0.0.0/8")
 envschema.URL().QueryParameter("timeout", envschema.Int().Between(1, 60))
 ```
 
-Exact bounds and multiples accept decimal or rational text. Precision and scale use the shortest exact fixed-point
-representation, ignoring leading zeros and fractional trailing zeros; zero has precision one. Non-terminating rational
-values fail precision and scale constraints. Maps reject duplicate normalized keys even without `UniqueKeys()`.
+For exact bounds and multiples, you can pass decimal or rational text. Precision and scale use the shortest exact
+fixed-point representation, ignoring leading zeros and trailing zeros in the fractional part. Zero has precision one.
+Non-terminating rational values fail precision and scale checks. Maps reject duplicate normalized keys even if you
+don't add `UniqueKeys()`.
 
-Scalar query parameters must occur once. An `Array` query rule validates repeated occurrences. Parameter defaults
-participate in validation but do not rewrite the URL or insert query values.
+Scalar query parameters must occur once. Use an `Array` query rule for repeated parameters. Parameter defaults are
+checked during validation, but they don't rewrite the URL or add query values.
 
 ## Sources and diagnostics
 
-`FromFile` reads a file named by a companion variable. Choose `FileConflictError`, `PreferValue`, or `PreferFile`.
-Contents are preserved; use `Trimmed()` on text rules if desired.
+Use `FromFile` to read a file whose path comes from a companion variable. Choose `FileConflictError`, `PreferValue`,
+or `PreferFile` to handle cases where both sources are set. File contents are kept as-is; add `Trimmed()` to text
+rules if you want to trim whitespace.
 
 ```go
 envschema.Var("API_TOKEN", envschema.String().Trimmed().Sensitive().FromFile("API_TOKEN_FILE", envschema.FileConflictError))
 envschema.Var("DEPLOYMENT_ID", envschema.String().DefaultTo("development").ExplicitInput())
 ```
 
-`ExplicitInput()` requires supplied input even when a default exists. Fallback and file sources can satisfy it;
-disallowed empty values cannot. File sources and explicit-input requirements belong to top-level variables.
+Add `ExplicitInput()` when a value must be supplied, even if the rule has a default. Fallback and file sources count;
+empty values that the rule doesn't allow do not. File sources and explicit-input requirements work on top-level
+variables only.
 
 `EnvFileSource(directory, ProcessSource())` reads `.env`, then `.env.local`, with process values taking precedence.
-`MapSource{Values: values, Label: "test"}` provides an enumerable source for tests.
+For tests, `MapSource{Values: values, Label: "test"}` gives you a source whose names you can enumerate.
 
-- `LoadWithReport(schema, source)` returns values, an origin report, and an error. Reports identify selected names,
-  source labels, defaults, and file sources without recording values or file contents.
-- Fallback use produces migration notices. `Var(...).Deprecated("migration guidance")` adds deprecation notices.
-- `LoadSource(schema, source, "MYAPP_")` rejects undeclared variables within supplied prefixes. Primary names,
-  fallbacks, and companion file names are recognized. With no prefixes, unrelated variables are allowed.
-- Generated packages expose typed `LoadSource` and `LoadWithReport` functions too.
+- `LoadWithReport(schema, source)` returns values, an origin report, and an error. The report tells you which names,
+  source labels, defaults, and file sources were used, without recording values or file contents.
+- Using a fallback produces a migration notice. Add `Var(...).Deprecated("migration guidance")` for deprecation notices.
+- `LoadSource(schema, source, "MYAPP_")` catches undeclared variables under the prefixes you supply. It recognizes
+  primary names, fallbacks, and companion file names. Without prefixes, unrelated variables are allowed.
+- Generated packages give you typed `LoadSource` and `LoadWithReport` functions too.
 
-File contents are resolved once per load before constraints run. Load failures aggregate independent errors:
-use `errors.As` with `*envschema.ValidationErrors` to inspect `Issues`. Each `ValidationError` includes a `Code`,
-a `Path` such as `BACKENDS[1].timeout`, and a cause. Codes include `required`, `explicit_input`, `source`, `invalid`,
-`unknown`, and `constraint`. Constraints depending on invalid values are skipped. No partial configuration is returned
-on failure.
+File contents are read once per load, before constraints run. If loading fails, independent errors are collected
+together. Use `errors.As` with `*envschema.ValidationErrors` to inspect `Issues`. Each `ValidationError` has a `Code`,
+a `Path` like `BACKENDS[1].timeout`, and a cause. Codes include `required`, `explicit_input`, `source`, `invalid`,
+`unknown`, and `constraint`. Constraints that depend on invalid values are skipped, and a failed load won't return
+a partial configuration.
 
 ## Configuration tooling
 
-Add descriptions with `Var(...).DescribedAs("description")`.
+Give variables a description with `Var(...).DescribedAs("description")`.
 
 ```shell
 go tool envschema check -directory . -prefix MYAPP_ ./schema
@@ -316,11 +319,11 @@ go tool envschema example ./schema
 go tool envschema describe ./schema
 ```
 
-`check` compiles and executes a temporary generated loader, including custom domain validation. It reads dotenv files
-from `-directory` (the current directory by default), with process values taking precedence, and requires the Go toolchain.
-`example` prints dotenv defaults and commented placeholders. `describe` prints a Markdown table. Both omit secret defaults,
-including defaults containing nested secrets. Output goes to standard output; redirect it to the desired destination.
-All three commands accept `-name` to select a provider.
+`check` compiles and runs a temporary generated loader, including custom domain validation, so you'll need the Go
+toolchain. It reads dotenv files from `-directory` (the current directory by default), with process values taking precedence.
+`example` prints dotenv defaults and commented placeholders, while `describe` prints a Markdown table. Both leave out
+secret defaults, including defaults with nested secrets. Output goes to standard output, so you can redirect it wherever
+you need it. Use `-name` with any of the three commands to pick a provider.
 
 ## Validation
 
@@ -330,8 +333,7 @@ go generate ./example/config
 go test ./...
 ```
 
-Generated files embed the validated schema that produced them, so applications do not need to retain or execute the
-generator source at runtime. Options that do not apply to a rule are rejected during schema validation instead of being
-silently ignored.
+Generated files include the validated schema that produced them, so your app doesn't need to keep or run the generator
+source at runtime. If an option doesn't apply to a rule, schema validation rejects it instead of silently ignoring it.
 
-See [PERFORMANCE.md](PERFORMANCE.md) for benchmark methodology, current reference results, and reproducible commands.
+See [PERFORMANCE.md](PERFORMANCE.md) for how the benchmarks are run, the current reference results, and commands to reproduce them.
